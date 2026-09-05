@@ -101,18 +101,25 @@ func SharedVault(store *accounts.Store, cfg config.Config, id, displayName, owne
 	})
 }
 
-// DeleteVaultData removes a vault's notes. Deliberately separate from removing
-// an account: forgetting who someone is should not delete what they wrote.
-func DeleteVaultData(store *accounts.Store, cfg config.Config, id string) error {
-	vault, err := store.Vault(id)
-	if err != nil {
+// DeleteVaultData removes a vault's notes and its index. Deliberately separate
+// from removing an account: forgetting who someone is should not delete what
+// they wrote. The root is passed in because the registration is usually gone
+// by the time this is called.
+func DeleteVaultData(cfg config.Config, id, root string) error {
+	if root == "" || root == "/" || filepath.Dir(root) == root {
+		return fmt.Errorf("refusing to delete %q", root)
+	}
+	if err := os.RemoveAll(root); err != nil {
 		return err
 	}
-	if vault.Root == "" || vault.Root == "/" {
-		return fmt.Errorf("refusing to delete %q", vault.Root)
-	}
-	if err := os.RemoveAll(vault.Root); err != nil {
+	if err := os.Remove(cfg.IndexPath(id)); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return os.Remove(cfg.IndexPath(id))
+	// The write-ahead log files travel with the database.
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if err := os.Remove(cfg.IndexPath(id) + suffix); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
 }

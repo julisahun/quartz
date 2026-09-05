@@ -208,30 +208,58 @@ func (s *Store) ListUsers() ([]User, error) {
 	return out, rows.Err()
 }
 
-// DeleteUser removes an account and its memberships. Vault directories are
-// left on disk: deleting someone's notes is a separate, deliberate act.
-func (s *Store) DeleteUser(name string) error {
+// DeleteUser removes an account, its memberships, its sessions and its private
+// vault's registration. Vault directories are left on disk: deleting someone's
+// notes is a separate, deliberate act.
+//
+// Shared vaults the account owned are kept and returned, because other people
+// may be using them — they need a new owner, not a silent deletion.
+func (s *Store) DeleteUser(name string) (orphanedShared []string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tx, err := s.db.Begin()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer tx.Rollback()
+
 	res, err := tx.Exec(`DELETE FROM users WHERE name = ?`, name)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNoSuchUser
+		return nil, ErrNoSuchUser
 	}
 	if _, err := tx.Exec(`DELETE FROM memberships WHERE user = ?`, name); err != nil {
-		return err
+		return nil, err
 	}
 	if _, err := tx.Exec(`DELETE FROM sessions WHERE user = ?`, name); err != nil {
-		return err
+		return nil, err
 	}
-	return tx.Commit()
+
+	// The private vault goes with the account; nobody else could open it.
+	if _, err := tx.Exec(
+		`DELETE FROM vaults WHERE owner = ? AND kind = ?`, name, string(Private)); err != nil {
+		return nil, err
+	}
+
+	rows, err := tx.Query(`SELECT id FROM vaults WHERE owner = ?`, name)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		orphanedShared = append(orphanedShared, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return orphanedShared, tx.Commit()
 }
 
 // --- vaults ---------------------------------------------------------------
@@ -372,6 +400,49 @@ func (s *Store) RemoveMember(vaultID, user string) error {
 		return ErrNotAMember
 	}
 	return nil
+}
+
+// DeleteVault unregisters a vault and every membership of it. The directory is
+// left alone: unregistering is not deleting someone's notes.
+func (s *Store) DeleteVault(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(`DELETE FROM vaults WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNoSuchVault
+	}
+	if _, err := tx.Exec(`DELETE FROM memberships WHERE vault_id = ?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// VaultsOwnedBy lists the vaults an account owns, including ones left behind
+// after the account itself was deleted.
+func (s *Store) VaultsOwnedBy(owner string) ([]string, error) {
+	rows, err := s.db.Query(`SELECT id FROM vaults WHERE owner = ? ORDER BY id`, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) Members(vaultID string) (map[string]Role, error) {

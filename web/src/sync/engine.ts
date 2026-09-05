@@ -1,4 +1,5 @@
 import { ApiError, type Change, type VaultApi } from '../api/client'
+import { sha256Hex } from '../vault/hash'
 import type { VaultStore } from '../vault/types'
 import { conflictPath } from './conflict'
 
@@ -136,7 +137,10 @@ export class SyncEngine {
   private async download(path: string): Promise<void> {
     try {
       const { data, hash } = await this.api.getFile(path)
-      await this.store.applyRemote(path, data, hash)
+      // Never store a file with an unknown base hash: it would look like a
+      // local creation on the next push, and creating a file the server
+      // already has means a 412 and a conflict copy for nothing.
+      await this.store.applyRemote(path, data, hash || (await sha256Hex(data)))
     } catch (err) {
       if (err instanceof ApiError && err.isNotFound) return // deleted again meanwhile
       throw err

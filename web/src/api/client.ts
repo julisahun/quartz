@@ -1,3 +1,4 @@
+import { sha256Hex } from '../vault/hash'
 import type { FileMeta } from '../vault/types'
 
 export interface Change {
@@ -38,6 +39,18 @@ export class ApiError extends Error {
 
   get isNotFound(): boolean {
     return this.status === 404
+  }
+}
+
+/**
+ * Thrown when a downloaded file does not match the hash the server claims for
+ * it — something between the two altered the bytes. Storing it anyway would
+ * mean pushing corrupted content back later, so the download fails instead.
+ */
+export class IntegrityError extends Error {
+  constructor(readonly path: string) {
+    super(`${path} arrived altered in transit`)
+    this.name = 'IntegrityError'
   }
 }
 
@@ -102,6 +115,13 @@ export interface Api {
   vault(id: string): VaultApi
 }
 
+/** Normalises an ETag: weak prefix and quotes off, empty becomes undefined. */
+export function parseETag(value: string | null | undefined): string | undefined {
+  if (!value) return undefined
+  const cleaned = value.replace(/^W\//, '').replace(/"/g, '').trim()
+  return cleaned === '' ? undefined : cleaned
+}
+
 export class HttpApi implements Api {
   /**
    * `token` is only used by the desktop shell: its webview is a different
@@ -140,7 +160,7 @@ export class HttpApi implements Api {
       } catch {
         /* not JSON; the status is enough */
       }
-      throw new ApiError(resp.status, code, message, etag?.replace(/^W\//, '').replace(/"/g, ''))
+      throw new ApiError(resp.status, code, message, parseETag(etag))
     }
     return resp
   }
@@ -189,8 +209,19 @@ export class HttpApi implements Api {
       changes: async (since: number) => (await this.request(`${base}/changes?since=${since}`)).json(),
       getFile: async (path: string) => {
         const resp = await this.request(`${base}/file?path=${encodeURIComponent(path)}`)
-        const hash = (resp.headers.get('ETag') ?? '').replace(/"/g, '')
-        return { data: new Uint8Array(await resp.arrayBuffer()), hash }
+        const data = new Uint8Array(await resp.arrayBuffer())
+
+        // The hash is derived from the bytes, not read from the header.
+        // A proxy in front of the server may weaken the ETag to W/"..." or
+        // drop it altogether when it compresses a response — and a client that
+        // trusted an empty ETag would treat every file it just downloaded as a
+        // brand new local one, and try to create it again on the next push.
+        const hash = await sha256Hex(data)
+        const claimed = parseETag(resp.headers.get('ETag'))
+        if (claimed && /^[0-9a-f]{64}$/.test(claimed) && claimed !== hash) {
+          throw new IntegrityError(path)
+        }
+        return { data, hash }
       },
       putFile: async (path: string, data: Uint8Array, baseHash: string) => {
         const headers: Record<string, string> = { 'Content-Type': 'application/octet-stream' }

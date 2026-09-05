@@ -112,9 +112,23 @@ func writeVaultError(w http.ResponseWriter, err error) {
 	}
 }
 
+// unquoteETag normalises an entity tag to the bare hash.
+//
+// Order matters more than it looks: a proxy that compresses a response rewrites
+// ETag: "abc" as W/"abc", and a client that strips only the quotes sends back
+// If-Match: "W/abc". Stripping the weak prefix first would miss that, every
+// update would fail its precondition, and the client would keep writing
+// conflict copies of a file nobody else had touched.
 func unquoteETag(v string) string {
-	v = strings.TrimPrefix(v, "W/")
-	return strings.Trim(v, `"`)
+	v = strings.TrimSpace(v)
+	for {
+		before := v
+		v = strings.TrimPrefix(v, "W/")
+		v = strings.Trim(v, `"`)
+		if v == before {
+			return v
+		}
+	}
 }
 
 func etagMatches(header, hash string) bool {

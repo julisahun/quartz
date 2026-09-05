@@ -4,6 +4,7 @@ import { IdbVaultStore } from '../vault/idb-store'
 import { decodeText, encodeText } from '../vault/types'
 import { SyncEngine, type SyncNotice } from './engine'
 import { FakeApi, FakeServer } from './fake-server'
+import type { VaultApi } from '../api/client'
 
 let dbCounter = 0
 
@@ -212,5 +213,44 @@ describe('sync engine', () => {
     const phone = new Device(server, 'phone')
     await phone.engine.sync()
     expect(await phone.store.read('img/pasted.png')).toEqual(png)
+  })
+})
+
+describe('a transport that loses hashes', () => {
+  /**
+   * Stands in for a proxy that drops the ETag header, which is how the first
+   * real device to sync through Cloudflare ended up creating a conflict copy
+   * of every note it had just downloaded.
+   */
+  class HashlessApi implements VaultApi {
+    constructor(private readonly inner: FakeApi) {}
+    snapshot = () => this.inner.snapshot()
+    changes = (since: number) => this.inner.changes(since)
+    putFile = (path: string, data: Uint8Array, baseHash: string) =>
+      this.inner.putFile(path, data, baseHash)
+    deleteFile = (path: string, baseHash: string) => this.inner.deleteFile(path, baseHash)
+    search = () => this.inner.search()
+    async getFile(path: string) {
+      const file = await this.inner.getFile(path)
+      return { data: file.data, hash: '' } // the header never arrived
+    }
+  }
+
+  it('still syncs cleanly, with no conflict copies', async () => {
+    const server = new FakeServer()
+    await server.writeExternally('notes/one.md', 'first\n')
+    await server.writeExternally('notes/two.md', 'second\n')
+
+    const store = new IdbVaultStore(`quartz-hashless-${Date.now()}`)
+    const engine = new SyncEngine(store, new HashlessApi(new FakeApi(server)), { device: 'phone' })
+
+    await engine.sync()
+    await engine.sync()
+    await engine.sync()
+
+    const paths = (await store.list()).map((f) => f.path).sort()
+    expect(paths).toEqual(['notes/one.md', 'notes/two.md'])
+    expect(await store.pending()).toHaveLength(0)
+    expect([...server.files.keys()].sort()).toEqual(['notes/one.md', 'notes/two.md'])
   })
 })

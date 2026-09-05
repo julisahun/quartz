@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -467,6 +468,59 @@ func TestFileLifecycleAndPreconditions(t *testing.T) {
 	}
 	if resp := juli.get("juli", "notes/a.md"); resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("get after delete = %d", resp.StatusCode)
+	}
+}
+
+func TestWeakETagFromACompressingProxyIsAccepted(t *testing.T) {
+	// Cloudflare rewrites ETag: "abc" as W/"abc" whenever it compresses a
+	// response, and a client that strips only the quotes sends back
+	// If-Match: "W/abc". Rejecting that made the live server hand out conflict
+	// copies for files nobody else had touched.
+	h := newHarness(t)
+	juli := h.account("juli")
+	meta := juli.create("juli", "a.md", "one")
+
+	for _, header := range []string{
+		`"` + meta.Hash + `"`,
+		`W/"` + meta.Hash + `"`,
+		`"W/` + meta.Hash + `"`,
+	} {
+		current, err := h.reg.Service("juli")
+		if err != nil {
+			t.Fatal(err)
+		}
+		before, err := current.Vault.Stat("a.md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp := juli.put("juli", "a.md", []byte("written with "+header), map[string]string{
+			"If-Match": `"` + before.Hash + `"`,
+		})
+		resp.Body.Close()
+
+		now, err := current.Vault.Stat("a.md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		weak := juli.put("juli", "a.md", []byte("update via "+header), map[string]string{
+			"If-Match": weakened(header, now.Hash),
+		})
+		if weak.StatusCode != http.StatusOK {
+			t.Errorf("If-Match %s = %d, want 200", header, weak.StatusCode)
+		}
+		weak.Body.Close()
+	}
+}
+
+// weakened rebuilds a header of the same shape around a current hash.
+func weakened(shape, hash string) string {
+	switch {
+	case strings.HasPrefix(shape, `W/"`):
+		return `W/"` + hash + `"`
+	case strings.HasPrefix(shape, `"W/`):
+		return `"W/` + hash + `"`
+	default:
+		return `"` + hash + `"`
 	}
 }
 

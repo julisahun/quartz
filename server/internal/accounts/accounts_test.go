@@ -173,7 +173,7 @@ func TestDeletingAUserRemovesTheirAccess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := s.DeleteUser("maria"); err != nil {
+	if _, err := s.DeleteUser("maria"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Access("maria", "casa"); err != ErrNotAMember {
@@ -182,7 +182,75 @@ func TestDeletingAUserRemovesTheirAccess(t *testing.T) {
 	if _, ok, _ := s.LookupSession("hash-maria"); ok {
 		t.Error("a deleted user's session still resolves")
 	}
-	if err := s.DeleteUser("maria"); err != ErrNoSuchUser {
+	if _, err := s.DeleteUser("maria"); err != ErrNoSuchUser {
+		t.Errorf("deleting twice = %v", err)
+	}
+}
+
+func TestDeletingAUserTakesTheirPrivateVaultWithThem(t *testing.T) {
+	s := openTestStore(t)
+	for _, name := range []string{"juli", "maria"} {
+		if err := s.CreateUser(name, "password"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.CreateVault(Vault{ID: "maria", Name: "maria", Kind: Private, Root: "/tmp/maria", Owner: "maria"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateVault(Vault{ID: "casa", Name: "Casa", Kind: Shared, Root: "/tmp/casa", Owner: "maria"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddMember("casa", "juli", Member); err != nil {
+		t.Fatal(err)
+	}
+
+	orphaned, err := s.DeleteUser("maria")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Her private vault is unregistered: nobody could ever open it again.
+	if _, err := s.Vault("maria"); err != ErrNoSuchVault {
+		t.Errorf("the private vault is still registered: %v", err)
+	}
+	// The shared one survives, because juli is still using it — but it is
+	// reported so an admin can hand it to someone.
+	if _, err := s.Vault("casa"); err != nil {
+		t.Errorf("the shared vault was deleted from under its members: %v", err)
+	}
+	if len(orphaned) != 1 || orphaned[0] != "casa" {
+		t.Errorf("orphaned = %v, want [casa]", orphaned)
+	}
+	if role, err := s.Access("juli", "casa"); err != nil || role != Member {
+		t.Errorf("juli lost access to the shared vault: %v, %v", role, err)
+	}
+}
+
+func TestDeleteVault(t *testing.T) {
+	s := openTestStore(t)
+	for _, name := range []string{"juli", "maria"} {
+		if err := s.CreateUser(name, "password"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.CreateVault(Vault{ID: "casa", Name: "Casa", Kind: Shared, Root: "/tmp/casa", Owner: "juli"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddMember("casa", "maria", Member); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteVault("casa"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Vault("casa"); err != ErrNoSuchVault {
+		t.Errorf("vault still registered: %v", err)
+	}
+	// Memberships go with it, so nobody is left holding access to a ghost.
+	if _, err := s.Access("maria", "casa"); err != ErrNotAMember {
+		t.Errorf("membership outlived the vault: %v", err)
+	}
+	if err := s.DeleteVault("casa"); err != ErrNoSuchVault {
 		t.Errorf("deleting twice = %v", err)
 	}
 }
