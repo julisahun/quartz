@@ -1,0 +1,17 @@
+# build output
+bin/
+dist/
+node_modules/
+desktop/src-tauri/target/
+
+# local state
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.env
+.env.local
+vault-dev/
+.quarts-sync.json
+
+# os
+.DS_Store

@@ -1,0 +1,5 @@
+# Add to /etc/cloudflared/config.yml *before* the 404 catch-all, then:
+#   cloudflared tunnel route dns <tunnel> notes.sigint-pm.uk
+#   sudo systemctl restart cloudflared
+- hostname: notes.sigint-pm.uk
+  service: http://localhost:8086

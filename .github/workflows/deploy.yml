@@ -1,0 +1,90 @@
+name: Deploy quarts to the Pi
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - server/**
+      - web/**
+      - .github/workflows/deploy.yml
+
+concurrency:
+  group: pi-quarts-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      PI_HOST: sigint          # Tailscale MagicDNS name of the Pi
+      PI_USER: sigint
+      PI_DIR: /opt/quarts
+      SERVICE: quarts
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Run tests
+        working-directory: server
+        run: go test ./...
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build the PWA
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Cross-compile for the Pi (linux/arm64)
+        working-directory: server
+        env:
+          GOOS: linux
+          GOARCH: arm64
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p ../bin
+          go build -trimpath -o ../bin/quarts .
+          go build -trimpath -o ../bin/quarts-passwd ./cmd/quarts-passwd
+          go build -trimpath -o ../bin/quartsctl ./cmd/quartsctl
+
+      - name: Connect to tailnet
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Ship the binaries
+        run: |
+          rsync -az --chmod=F0755 \
+            -e "ssh -o StrictHostKeyChecking=accept-new" \
+            bin/quarts bin/quarts-passwd bin/quartsctl \
+            "$PI_USER@$PI_HOST:$PI_DIR/"
+
+      - name: Ship the PWA
+        run: |
+          rsync -a --delete \
+            -e "ssh -o StrictHostKeyChecking=accept-new" \
+            web/dist/ "$PI_USER@$PI_HOST:$PI_DIR/web/"
+
+      - name: Restart and smoke test
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new "$PI_USER@$PI_HOST" \
+            'sudo systemctl restart quarts && \
+             for i in $(seq 1 15); do \
+               curl -sf http://127.0.0.1:8086/healthz >/dev/null && { echo ok; exit 0; }; \
+               sleep 1; \
+             done; \
+             echo "quarts did not come up" >&2; \
+             sudo journalctl -u quarts -n 40 --no-pager >&2; exit 1'
