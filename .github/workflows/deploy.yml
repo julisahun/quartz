@@ -67,6 +67,18 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
+          # Without this the ephemeral node joins with MagicDNS off, and the
+          # Pi's name does not resolve — "Could not resolve hostname sigint".
+          args: --accept-dns=true
+
+      - name: Check the tailnet path to the Pi
+        run: |
+          tailscale status || true
+          if ! tailscale ip -4 "$PI_HOST" >/dev/null 2>&1; then
+            echo "::error::$PI_HOST is not visible on the tailnet — check the machine is up and tagged tag:server"
+            exit 1
+          fi
+          echo "$PI_HOST is $(tailscale ip -4 "$PI_HOST")"
 
       - name: Ship the binaries
         run: |
