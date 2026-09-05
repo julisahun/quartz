@@ -4,9 +4,11 @@ import { isDesktop, tauriBridge } from './tauri-bridge'
 import type { VaultStore } from './types'
 
 /**
- * Picks the implementation of the storage seam for wherever the app is running.
- * This is the only place in the app that knows which one it is.
+ * Picks the implementation of the storage seam for wherever the app is
+ * running, and gives each (account, vault) pair a store of its own — two
+ * accounts on one browser must never share a local vault.
  */
-export function createVaultStore(): VaultStore {
-  return isDesktop() ? new DesktopVaultStore(tauriBridge) : new IdbVaultStore()
+export function createVaultStore(user: string, vaultId: string): VaultStore {
+  if (isDesktop()) return new DesktopVaultStore(tauriBridge(vaultId))
+  return new IdbVaultStore(`quartz-${user}-${vaultId}`)
 }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { SearchHit } from '../api/client'
 import { useApp } from '../state/store'
 import { folderOf, isConflictCopy, isNote, noteTitle } from '../state/notes'
+import { VaultSwitcher } from './VaultSwitcher'
 
 interface Props {
   onNavigate: () => void
@@ -54,6 +55,7 @@ export function Sidebar({ onNavigate }: Props) {
 
   return (
     <aside className="sidebar">
+      <VaultSwitcher />
       <div className="sidebar-head">
         <input
           className="search"

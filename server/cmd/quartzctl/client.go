@@ -18,6 +18,7 @@ type client struct {
 	base   string
 	cookie string
 	device string
+	vault  string
 	http   *http.Client
 }
 
@@ -26,8 +27,16 @@ func newClient(st *state) *client {
 		base:   strings.TrimRight(st.Server, "/"),
 		cookie: st.Cookie,
 		device: st.Device,
+		vault:  st.Vault,
 		http:   &http.Client{Timeout: 2 * time.Minute},
 	}
+}
+
+// vaultPath builds a path under the vault this client is bound to. Every
+// content endpoint lives under one, so there is no way to ask for "the vault"
+// without saying which.
+func (c *client) vaultPath(suffix string) string {
+	return "/api/v/" + url.PathEscape(c.vault) + suffix
 }
 
 type apiError struct {
@@ -79,21 +88,48 @@ func (c *client) do(method, path string, body io.Reader, headers map[string]stri
 	return resp, nil
 }
 
-func (c *client) login(user, password string) (string, error) {
+type vaultInfo struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Kind  string `json:"kind"`
+	Owner string `json:"owner"`
+	Role  string `json:"role"`
+}
+
+// login returns the session cookie and the vaults this account may open.
+func (c *client) login(user, password string) (string, []vaultInfo, error) {
 	payload, _ := json.Marshal(map[string]string{"user": user, "password": password, "device": c.device})
 	resp, err := c.do(http.MethodPost, "/auth/login", bytes.NewReader(payload),
 		map[string]string{"Content-Type": "application/json"})
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
+
+	var body struct {
+		Vaults []vaultInfo `json:"vaults"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return "", nil, err
+	}
 	for _, ck := range resp.Cookies() {
 		if ck.Name == "quartz_session" {
-			return ck.Value, nil
+			return ck.Value, body.Vaults, nil
 		}
 	}
-	return "", fmt.Errorf("the server did not return a session cookie")
+	return "", nil, fmt.Errorf("the server did not return a session cookie")
+}
+
+func (c *client) vaults() ([]vaultInfo, error) {
+	resp, err := c.do(http.MethodGet, "/api/vaults", nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var body struct {
+		Vaults []vaultInfo `json:"vaults"`
+	}
+	return body.Vaults, json.NewDecoder(resp.Body).Decode(&body)
 }
 
 type snapshot struct {
@@ -103,7 +139,7 @@ type snapshot struct {
 }
 
 func (c *client) snapshot() (snapshot, error) {
-	resp, err := c.do(http.MethodGet, "/api/snapshot", nil, nil)
+	resp, err := c.do(http.MethodGet, c.vaultPath("/snapshot"), nil, nil)
 	if err != nil {
 		return snapshot{}, err
 	}
@@ -120,7 +156,7 @@ type changePage struct {
 }
 
 func (c *client) changes(since int64) (changePage, error) {
-	resp, err := c.do(http.MethodGet, fmt.Sprintf("/api/changes?since=%d", since), nil, nil)
+	resp, err := c.do(http.MethodGet, fmt.Sprintf("%s?since=%d", c.vaultPath("/changes"), since), nil, nil)
 	if err != nil {
 		return changePage{}, err
 	}
@@ -130,7 +166,7 @@ func (c *client) changes(since int64) (changePage, error) {
 }
 
 func (c *client) getFile(path string) ([]byte, string, error) {
-	resp, err := c.do(http.MethodGet, "/api/file?path="+url.QueryEscape(path), nil, nil)
+	resp, err := c.do(http.MethodGet, c.vaultPath("/file?path=")+url.QueryEscape(path), nil, nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -150,7 +186,7 @@ func (c *client) putFile(path string, data []byte, baseHash string) (vault.FileM
 	} else {
 		headers["If-Match"] = `"` + baseHash + `"`
 	}
-	resp, err := c.do(http.MethodPut, "/api/file?path="+url.QueryEscape(path), bytes.NewReader(data), headers)
+	resp, err := c.do(http.MethodPut, c.vaultPath("/file?path=")+url.QueryEscape(path), bytes.NewReader(data), headers)
 	if err != nil {
 		return vault.FileMeta{}, err
 	}
@@ -160,7 +196,7 @@ func (c *client) putFile(path string, data []byte, baseHash string) (vault.FileM
 }
 
 func (c *client) deleteFile(path, baseHash string) error {
-	resp, err := c.do(http.MethodDelete, "/api/file?path="+url.QueryEscape(path), nil,
+	resp, err := c.do(http.MethodDelete, c.vaultPath("/file?path=")+url.QueryEscape(path), nil,
 		map[string]string{"If-Match": `"` + baseHash + `"`})
 	if err != nil {
 		return err

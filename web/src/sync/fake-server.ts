@@ -1,11 +1,11 @@
 import {
   ApiError,
   OfflineError,
-  type Api,
   type Change,
   type ChangePage,
   type SearchHit,
   type Snapshot,
+  type VaultApi,
 } from '../api/client'
 import { sha256Hex } from '../vault/hash'
 import type { FileMeta } from '../vault/types'
@@ -86,8 +86,8 @@ export class FakeServer {
   }
 }
 
-/** One device's connection to the fake server, with a switch for each failure mode. */
-export class FakeApi implements Api {
+/** One device's connection to one vault, with a switch for each failure mode. */
+export class FakeApi implements VaultApi {
   online = true
   authed = true
   /** Every path the client asked for, useful for asserting round trips. */
@@ -98,20 +98,6 @@ export class FakeApi implements Api {
   private check(): void {
     if (!this.online) throw new OfflineError()
     if (!this.authed) throw new ApiError(401, 'session_expired', 'sign in again')
-  }
-
-  async login(_user?: string, _password?: string, _device?: string, _desktop?: boolean): Promise<void> {
-    if (!this.online) throw new OfflineError()
-    this.authed = true
-  }
-
-  async logout(): Promise<void> {
-    this.authed = false
-  }
-
-  async session(): Promise<boolean> {
-    if (!this.online) throw new OfflineError()
-    return this.authed
   }
 
   async snapshot(): Promise<Snapshot> {

@@ -1,12 +1,13 @@
 # quartz
 
-A self-hosted notes app over a plain folder of markdown files. Obsidian keeps
-working on the same vault, which is the point: it is the fallback while the
+A self-hosted notes app over plain folders of markdown files. Obsidian keeps
+working on the same folders, which is the point: it is the fallback while the
 editor is still being built.
 
-Three musts: markdown editing, offline editing, sync across devices.
-Non-goals: graph view, plugins, canvas, publishing, multi-user, real-time
-collaboration, CRDT merge, Dataview queries, themes, a native mobile app.
+Three musts: markdown editing, offline editing, sync across devices. Each
+account gets a private vault, and vaults can be shared with other accounts.
+Non-goals: graph view, plugins, canvas, publishing, real-time collaboration,
+CRDT merge, Dataview queries, themes, a native mobile app.
 
 ## How it fits together
 
@@ -30,15 +31,19 @@ it and the server rebuilds it by rescanning the vault on startup.
 ## Layout
 
 ```
-server/           Go server and the CLI sync client
+server/           Go server, admin CLI and the CLI sync client
+  internal/accounts   users, vaults, memberships, sessions — the only DB that matters
+  internal/provision  creating accounts and vaults; the single-user migration
+  internal/registry   one running vault per registered vault, opened on demand
   internal/vault      path safety, atomic writes, scanning
-  internal/index      change journal, manifest, FTS5 search, sessions
+  internal/index      change journal, manifest, FTS5 search (one per vault)
   internal/watcher    fsnotify, so Obsidian's writes are seen
-  internal/gitstore   debounced commits of the vault
-  internal/service    the coordinator; the only thing that mutates the vault
+  internal/gitstore   debounced commits of a vault
+  internal/service    the coordinator; the only thing that mutates a vault
   internal/httpapi    the API in "API" below
+  cmd/quartz-admin    accounts and vaults (there is no signup endpoint)
   cmd/quartzctl       folder sync client (milestone 1's acceptance test)
-  cmd/quartz-passwd   argon2id hash generator for QUARTZ_PASSWORD_HASH
+  cmd/quartz-passwd   argon2id hash generator, for a hand-written .env
 web/              the PWA (milestones 2–4, 6)
 desktop/          Tauri shell (milestone 5)
 deploy/           systemd unit, cloudflared snippet, Pi checklist
@@ -48,19 +53,29 @@ deploy/           systemd unit, cloudflared snippet, Pi checklist
 
 | | |
 |---|---|
-| `POST /auth/login` | sets an HttpOnly session cookie |
+| `POST /auth/login` | sets an HttpOnly session cookie, returns `{user, vaults}` |
 | `POST /auth/logout` | clears it |
-| `GET /auth/session` | 200 while signed in |
-| `GET /api/snapshot` | full manifest `{head, files:[{path,hash,size,mtime}]}` |
-| `GET /api/changes?since=<seq>` | journal entries after a cursor, plus `head` and `more` |
-| `GET /api/file?path=<p>` | contents, `ETag: "<hash>"` |
-| `PUT /api/file?path=<p>` | needs `If-Match: "<hash>"` or `If-None-Match: *` → 200 / 412 / 428 |
-| `DELETE /api/file?path=<p>` | needs `If-Match: "<hash>"` → 204 / 412 |
-| `GET /api/search?q=<q>` | FTS5 hits with snippets |
-| `GET /api/history?path=<p>` | recent commits touching a path |
+| `GET /auth/session` | who you are and what you may open |
+| `GET /api/vaults` | `[{id, name, kind, owner, role}]` |
+| `GET /api/v/{vault}/snapshot` | full manifest `{head, epoch, files:[…]}` |
+| `GET /api/v/{vault}/changes?since=<seq>` | journal entries after a cursor, plus `head`, `epoch`, `more` |
+| `GET /api/v/{vault}/file?path=<p>` | contents, `ETag: "<hash>"` |
+| `PUT /api/v/{vault}/file?path=<p>` | needs `If-Match: "<hash>"` or `If-None-Match: *` → 200 / 412 / 428 |
+| `DELETE /api/v/{vault}/file?path=<p>` | needs `If-Match: "<hash>"` → 204 / 412 |
+| `GET /api/v/{vault}/search?q=<q>` | FTS5 hits with snippets |
+| `GET /api/v/{vault}/history?path=<p>` | recent commits touching a path |
+| `GET /api/v/{vault}/members` | who else can open this vault |
+
+Every content route is under a vault, and a vault you are not a member of
+answers **404**, not 403: whether someone else's vault exists is not something
+this API tells you.
 
 A `401` means "sign in again". It never means "throw away unsent edits" —
 clients keep their pending queue and prompt for a re-login.
+
+`epoch` identifies a vault's index. If the index is ever rebuilt the sequence
+numbers restart, and clients notice the new epoch and reconcile from the
+manifest instead of trusting a cursor that now means nothing.
 
 ## Sync in one paragraph
 
@@ -77,11 +92,11 @@ dropped and the file comes back.
 
 ```bash
 cd server
-export QUARTZ_VAULT=$PWD/../vault-dev
-export QUARTZ_INDEX=$PWD/../vault-dev-index.sqlite
-export QUARTZ_PASSWORD_HASH="$(go run ./cmd/quartz-passwd -stdin <<< 'devpassword')"
-export QUARTZ_SECURE_COOKIE=false      # plain http on localhost
+export QUARTZ_DATA=$PWD/../data-dev
+export QUARTZ_SECURE_COOKIE=false                # plain http on localhost
 export QUARTZ_DEV_ORIGIN=http://localhost:5173   # for `npm run dev`
+
+echo devpassword | go run ./cmd/quartz-admin user add juli
 go run .
 ```
 
@@ -92,6 +107,23 @@ go run ./cmd/quartzctl login -server http://127.0.0.1:8086 -user juli -dir /tmp/
 go run ./cmd/quartzctl watch -dir /tmp/mirror
 ```
 
+## Accounts
+
+There is no signup endpoint: accounts exist because someone with shell access
+created them.
+
+```bash
+quartz-admin user add maria                        # creates maria + her private vault
+quartz-admin vault create casa -owner juli -name "Casa"
+quartz-admin vault share casa maria                # maria can now open it
+quartz-admin vault list
+quartz-admin user remove maria                     # keeps her notes; -purge deletes them
+```
+
+A private vault is addressed by its owner's name; shared vaults take the id you
+give them, from the same namespace. Run the CLI as the user the service runs as,
+so the directories it creates are owned correctly.
+
 Tests: `go test ./...` (add `-race` before pushing).
 
 ## Configuration
@@ -99,11 +131,9 @@ Tests: `go test ./...` (add `-race` before pushing).
 | Variable | Default | Meaning |
 |---|---|---|
 | `QUARTZ_ADDR` | `127.0.0.1:8086` | listen address |
-| `QUARTZ_VAULT` | `/srv/quartz/vault` | the vault |
-| `QUARTZ_INDEX` | `/srv/quartz/index.sqlite` | rebuildable index |
+| `QUARTZ_DATA` | `/srv/quartz` | accounts, vaults and indexes live under here |
 | `QUARTZ_WEB_DIR` | *(unset)* | serve the built PWA from here |
-| `QUARTZ_USER` | `juli` | the only account |
-| `QUARTZ_PASSWORD_HASH` | *(required)* | argon2id PHC string |
+| `QUARTZ_USER`, `QUARTZ_PASSWORD_HASH`, `QUARTZ_VAULT` | *(unset)* | only used once: with no accounts yet, these become the first account and its vault |
 | `QUARTZ_SESSION_TTL_DAYS` | `90` | sliding session lifetime |
 | `QUARTZ_SECURE_COOKIE` | `true` | set false for plain-http local dev |
 | `QUARTZ_GIT` | `true` | commit vault changes |
@@ -145,6 +175,7 @@ The desktop shell is in [`desktop/`](desktop/README.md).
 | M4 | Live preview | done for the construct list above |
 | M5 | Tauri desktop | shell builds and the seam is swapped; signing and updates are not set up |
 | M6 | iOS hardening | persistent storage, eviction recovery, keyboard-aware scrolling; the escape hatch has not been needed |
+| M7 | Multiple people | private vault per account, shared vaults, admin CLI; membership changes are CLI-only for now |
 
 Deployment lives in [`deploy/README.md`](deploy/README.md).
 Open questions and their answers are in [`DECISIONS.md`](DECISIONS.md).

@@ -1,8 +1,8 @@
 # quartz desktop
 
 The same web app in a Tauri window, with one difference that matters: the
-storage seam is backed by a **real folder** instead of IndexedDB. That folder
-is a valid Obsidian vault, so both apps can have it open at once.
+storage seam is backed by **real folders** instead of IndexedDB. Each one is a
+valid Obsidian vault, so both apps can have them open at once.
 
 ```
 web/src/vault/types.ts        the seam
@@ -19,9 +19,12 @@ atomic writes, sha256 — so a file means the same thing in all three places.
 
 | | |
 |---|---|
-| Vault | `~/Documents/quartz` by default; change `vault` in `settings.json` |
+| Vaults | `~/Documents/quartz/<vault id>` by default; change `vaults` in `settings.json` |
 | Settings | the app config directory (`~/Library/Application Support/uk.sigint-pm.quartz` on macOS) |
-| Sync state | `sync-state.json` beside the settings — **never inside the vault** |
+| Sync state | `sync-state-<vault>.json` beside the settings — **never inside a vault** |
+
+Each vault the account can open becomes a folder of its own, named after the
+vault id the server uses, so a shared vault and a private one never mix.
 
 ## Auth
 

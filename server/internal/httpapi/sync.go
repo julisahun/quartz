@@ -6,23 +6,25 @@ import (
 )
 
 func (a *API) handleSnapshot(w http.ResponseWriter, r *http.Request) {
-	files, err := a.idx.Snapshot()
+	idx := serviceFrom(r).Index
+	files, err := idx.Snapshot()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "server_error", "could not read the manifest")
 		return
 	}
-	head, err := a.idx.Head()
+	head, err := idx.Head()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "server_error", "could not read the cursor")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"head": head, "epoch": a.idx.Epoch(), "files": files})
+	writeJSON(w, http.StatusOK, map[string]any{"head": head, "epoch": idx.Epoch(), "files": files})
 }
 
 func (a *API) handleChanges(w http.ResponseWriter, r *http.Request) {
 	since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	changes, head, err := a.idx.Changes(since, limit)
+	idx := serviceFrom(r).Index
+	changes, head, err := idx.Changes(since, limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "server_error", "could not read the journal")
 		return
@@ -32,7 +34,7 @@ func (a *API) handleChanges(w http.ResponseWriter, r *http.Request) {
 	more := len(changes) > 0 && changes[len(changes)-1].Seq < head
 	writeJSON(w, http.StatusOK, map[string]any{
 		"head":    head,
-		"epoch":   a.idx.Epoch(),
+		"epoch":   idx.Epoch(),
 		"changes": changes,
 		"more":    more,
 	})

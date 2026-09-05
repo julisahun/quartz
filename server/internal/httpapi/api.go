@@ -1,37 +1,65 @@
-// Package httpapi exposes the sync API described in plan section 4.3.
+// Package httpapi exposes the sync API. Every path below /api/v/{vault} is
+// gated by membership of that vault; there is no other way in.
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
+	"quartz/internal/accounts"
+	"quartz/internal/auth"
 	"quartz/internal/config"
-	"quartz/internal/index"
+	"quartz/internal/registry"
 	"quartz/internal/service"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"quartz/internal/auth"
 )
 
 type API struct {
-	cfg     config.Config
-	svc     *service.Service
-	idx     *index.Index
-	log     *slog.Logger
-	limiter *auth.Limiter
+	cfg      config.Config
+	accounts *accounts.Store
+	reg      *registry.Registry
+	log      *slog.Logger
+	limiter  *auth.Limiter
 }
 
-func New(cfg config.Config, svc *service.Service, idx *index.Index, log *slog.Logger) *API {
+func New(cfg config.Config, store *accounts.Store, reg *registry.Registry, log *slog.Logger) *API {
 	return &API{
-		cfg:     cfg,
-		svc:     svc,
-		idx:     idx,
-		log:     log,
-		limiter: auth.NewLimiter(10, 15*time.Minute),
+		cfg:      cfg,
+		accounts: store,
+		reg:      reg,
+		log:      log,
+		limiter:  auth.NewLimiter(10, 15*time.Minute),
 	}
+}
+
+type ctxKey int
+
+const (
+	userCtxKey ctxKey = iota
+	vaultCtxKey
+	serviceCtxKey
+)
+
+func userFrom(r *http.Request) string {
+	user, _ := r.Context().Value(userCtxKey).(string)
+	return user
+}
+
+func vaultFrom(r *http.Request) accounts.Vault {
+	v, _ := r.Context().Value(vaultCtxKey).(accounts.Vault)
+	return v
+}
+
+func serviceFrom(r *http.Request) *service.Service {
+	svc, _ := r.Context().Value(serviceCtxKey).(*service.Service)
+	return svc
 }
 
 func (a *API) Router() http.Handler {
@@ -55,13 +83,19 @@ func (a *API) Router() http.Handler {
 
 	r.Route("/api", func(r chi.Router) {
 		r.Use(a.requireSession)
-		r.Get("/snapshot", a.handleSnapshot)
-		r.Get("/changes", a.handleChanges)
-		r.Get("/search", a.handleSearch)
-		r.Get("/history", a.handleHistory)
-		r.Get("/file", a.handleGetFile)
-		r.Put("/file", a.handlePutFile)
-		r.Delete("/file", a.handleDeleteFile)
+		r.Get("/vaults", a.handleVaults)
+
+		r.Route("/v/{vault}", func(r chi.Router) {
+			r.Use(a.requireVault)
+			r.Get("/snapshot", a.handleSnapshot)
+			r.Get("/changes", a.handleChanges)
+			r.Get("/search", a.handleSearch)
+			r.Get("/history", a.handleHistory)
+			r.Get("/members", a.handleMembers)
+			r.Get("/file", a.handleGetFile)
+			r.Put("/file", a.handlePutFile)
+			r.Delete("/file", a.handleDeleteFile)
+		})
 	})
 
 	if a.cfg.WebDir != "" {
@@ -70,16 +104,73 @@ func (a *API) Router() http.Handler {
 	return r
 }
 
+// requireVault resolves {vault} and checks that the signed-in user is a member.
+//
+// A vault the user cannot reach answers 404, not 403: whether someone else's
+// vault exists is not information this API gives out.
+func (a *API) requireVault(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := userFrom(r)
+		vaultID := chi.URLParam(r, "vault")
+
+		role, err := a.accounts.Access(user, vaultID)
+		if errors.Is(err, accounts.ErrNotAMember) {
+			writeError(w, http.StatusNotFound, "no_vault", "no such vault")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "server_error", "could not check access")
+			return
+		}
+		meta, err := a.accounts.Vault(vaultID)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "no_vault", "no such vault")
+			return
+		}
+		meta.Role = role
+
+		svc, err := a.reg.Service(vaultID)
+		if err != nil {
+			a.log.Error("could not open vault", "vault", vaultID, "err", err)
+			writeError(w, http.StatusInternalServerError, "server_error", "could not open the vault")
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), vaultCtxKey, meta)
+		ctx = context.WithValue(ctx, serviceCtxKey, svc)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (a *API) handleVaults(w http.ResponseWriter, r *http.Request) {
+	vaults, err := a.accounts.VaultsFor(userFrom(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "server_error", "could not list vaults")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"vaults": vaults})
+}
+
+func (a *API) handleMembers(w http.ResponseWriter, r *http.Request) {
+	members, err := a.accounts.Members(vaultFrom(r).ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "server_error", "could not list members")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"members": members})
+}
+
 func (a *API) logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(ww, r)
 		// Static asset noise is not worth a line each.
-		if ww.Status() >= 400 || r.URL.Path == "/auth/login" || len(r.URL.Path) > 4 && r.URL.Path[:4] == "/api" {
+		if ww.Status() >= 400 || r.URL.Path == "/auth/login" || strings.HasPrefix(r.URL.Path, "/api") {
 			a.log.Info("request",
 				"method", r.Method,
 				"path", r.URL.Path,
+				"user", userFrom(r),
 				"status", ww.Status(),
 				"bytes", ww.BytesWritten(),
 				"dur", time.Since(start).Round(time.Millisecond).String())

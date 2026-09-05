@@ -1,8 +1,8 @@
 // quartz desktop shell.
 //
 // The window runs the same web app as the browser; the difference is what sits
-// behind the storage seam. Here it is a real folder — a valid Obsidian vault
-// that both apps can have open at once (plan section 5, milestone 5).
+// behind the storage seam. Here each vault is a real folder — a valid Obsidian
+// vault that both apps can have open at once (plan section 5, milestone 5).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod vault;
@@ -14,47 +14,65 @@ use tauri::Manager;
 use vault::{Settings, VaultState};
 
 #[tauri::command]
-fn vault_root(state: tauri::State<'_, VaultState>) -> Result<String, String> {
-    Ok(state.root()?.to_string_lossy().into_owned())
+fn vaults_base(state: tauri::State<'_, VaultState>) -> Result<String, String> {
+    Ok(state.base()?.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
-fn set_vault_root(path: String, state: tauri::State<'_, VaultState>) -> Result<(), String> {
-    state.set_root(path)
+fn set_vaults_base(path: String, state: tauri::State<'_, VaultState>) -> Result<(), String> {
+    state.set_base(path)
 }
 
 #[tauri::command]
-fn vault_list(state: tauri::State<'_, VaultState>) -> Result<Vec<vault::FileMeta>, String> {
-    state.list()
+fn vault_root(vault: String, state: tauri::State<'_, VaultState>) -> Result<String, String> {
+    Ok(state.root(&vault)?.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
-fn vault_read(path: String, state: tauri::State<'_, VaultState>) -> Result<Vec<u8>, String> {
-    state.read(&path)
+fn vault_list(vault: String, state: tauri::State<'_, VaultState>) -> Result<Vec<vault::FileMeta>, String> {
+    state.list(&vault)
+}
+
+#[tauri::command]
+fn vault_read(
+    vault: String,
+    path: String,
+    state: tauri::State<'_, VaultState>,
+) -> Result<Vec<u8>, String> {
+    state.read(&vault, &path)
 }
 
 #[tauri::command]
 fn vault_write(
+    vault: String,
     path: String,
     data: Vec<u8>,
     state: tauri::State<'_, VaultState>,
 ) -> Result<(), String> {
-    state.write(&path, &data)
+    state.write(&vault, &path, &data)
 }
 
 #[tauri::command]
-fn vault_delete(path: String, state: tauri::State<'_, VaultState>) -> Result<(), String> {
-    state.delete(&path)
+fn vault_delete(
+    vault: String,
+    path: String,
+    state: tauri::State<'_, VaultState>,
+) -> Result<(), String> {
+    state.delete(&vault, &path)
 }
 
 #[tauri::command]
-fn state_read(state: tauri::State<'_, VaultState>) -> Result<String, String> {
-    state.read_sync_state()
+fn state_read(vault: String, state: tauri::State<'_, VaultState>) -> Result<String, String> {
+    state.read_sync_state(&vault)
 }
 
 #[tauri::command]
-fn state_write(json: String, state: tauri::State<'_, VaultState>) -> Result<(), String> {
-    state.write_sync_state(&json)
+fn state_write(
+    vault: String,
+    json: String,
+    state: tauri::State<'_, VaultState>,
+) -> Result<(), String> {
+    state.write_sync_state(&vault, &json)
 }
 
 fn main() {
@@ -73,8 +91,9 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            vaults_base,
+            set_vaults_base,
             vault_root,
-            set_vault_root,
             vault_list,
             vault_read,
             vault_write,

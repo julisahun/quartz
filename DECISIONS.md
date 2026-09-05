@@ -9,9 +9,40 @@ re-opened later.
 | 1 | Search in scope? | **Yes**, FTS5 from the start | The SQLite index is there anyway, so it costs one virtual table. Server-side from M1; the UI lands in M2. |
 | 2 | Attachments and pasted images? | **Yes, v1** | Binary files ride the same `/api/file` endpoints. Paste handling in the editor is the real work, not the server. |
 | 3 | Encryption at rest? | **No** | Plaintext `.md` on the Pi's SD card is what lets Obsidian keep working on the same vault — the plan's whole safety net. Protection is the Cloudflare tunnel, the home LAN, and a single account. Revisit if the vault ever leaves the house. |
-| 4 | Single user forever? | **Yes** | One account, no path scoping, no sharing. Multi-user would change auth and path handling shape. |
+| 4 | Single user forever? | **No — reversed 2026-09-06** | See below. The original plan assumed one user; it is now several people, each with a private vault, plus shared vaults. |
 | 5 | Name and repo | **`quartz`** | `julisahun/quartz`, following `aegis` / `pirdle` / `pergamino`. |
 | 6 | Vault on `home-lab` if repaired? | **No — the Pi** | `home-lab` is out of scope entirely. This workload never outgrows the Pi. |
+
+## Multiple people (2026-09-06)
+
+The app is for a handful of people (2–5), not only its author. That reversed
+open question 4 and produced three more decisions:
+
+| Question | Decision | Notes |
+|---|---|---|
+| Private or shared? | **Both** | Every account owns a private vault; shared vaults have members. |
+| How are accounts made? | **An admin CLI, `quartz-admin`** | No signup endpoint exists, so there is nothing public to attack. Membership changes are CLI-only too. |
+| How many people? | **2–5** | No quotas, no email flows. Worth revisiting past ~25. |
+
+What this changed, and what it deliberately did not:
+
+- **A vault became a first-class thing** — its own directory, git repo, change
+  journal, index and watcher — and the server holds a registry of them, opened
+  on demand. Content routes moved under `/api/v/{vault}/`.
+- **Identity moved out of the vault index** into `accounts.sqlite`. A vault
+  index must stay disposable; the list of who exists is not.
+- **The sync algorithm did not change at all.** Conflict copies, the pending
+  queue, the offline behaviour and the editor were untouched, because a vault
+  was always the unit of sync — it just belongs to someone now.
+- **A vault you cannot open answers 404**, so the API never confirms that
+  someone else's vault exists.
+- **The existing single-user deployment migrates itself**: with no accounts
+  yet, `QUARTZ_USER` / `QUARTZ_PASSWORD_HASH` / `QUARTZ_VAULT` become the first
+  account and its vault, adopted where it stands rather than moved.
+
+Not done, and worth knowing before inviting anyone: **the vault directory is
+still the only copy of their notes** (one SD card, no off-box backup), and
+sharing is managed over SSH rather than in the app.
 
 ## Decisions taken while building
 

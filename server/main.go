@@ -1,5 +1,6 @@
-// Command quartz is the notes server: it owns a vault of plain markdown files,
-// journals every change (whoever made it), and serves the sync API and the PWA.
+// Command quartz is the notes server: it owns one vault per user (plus any
+// shared vaults), journals every change whoever made it, and serves the sync
+// API and the PWA.
 package main
 
 import (
@@ -12,12 +13,11 @@ import (
 	"syscall"
 	"time"
 
+	"quartz/internal/accounts"
 	"quartz/internal/config"
-	"quartz/internal/gitstore"
 	"quartz/internal/httpapi"
-	"quartz/internal/index"
-	"quartz/internal/service"
-	"quartz/internal/vault"
+	"quartz/internal/provision"
+	"quartz/internal/registry"
 )
 
 func main() {
@@ -36,40 +36,27 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	v, err := vault.Open(cfg.VaultDir, cfg.MaxFileBytes)
+	store, err := accounts.Open(cfg.AccountsDB())
 	if err != nil {
 		return err
 	}
-	idx, err := index.Open(cfg.IndexDB)
-	if err != nil {
+	defer store.Close()
+
+	if err := provision.FromLegacyEnv(store, cfg, log); err != nil {
 		return err
 	}
-	defer idx.Close()
 
-	var git *gitstore.Store
-	if cfg.GitEnabled {
-		git, err = gitstore.New(v.Root(), cfg.GitDebounce, log)
-		if err != nil {
-			return err
-		}
-		defer git.Close()
-	} else {
-		git, err = gitstore.NewDisabled(v.Root(), log)
-		if err != nil {
-			return err
-		}
-	}
-
-	svc := service.New(v, idx, git, log)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := svc.Start(ctx); err != nil {
+	reg := registry.New(ctx, cfg, store, log)
+	defer reg.Close()
+	if err := reg.OpenAll(); err != nil {
 		return err
 	}
-	go housekeeping(ctx, idx, log)
+	go housekeeping(ctx, store, log)
 
-	api := httpapi.New(cfg, svc, idx, log)
+	api := httpapi.New(cfg, store, reg, log)
 	srv := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           api.Router(),
@@ -81,7 +68,8 @@ func run(log *slog.Logger) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Info("quartz listening", "addr", cfg.Addr, "vault", v.Root(), "git", cfg.GitEnabled)
+		users, _ := store.ListUsers()
+		log.Info("quartz listening", "addr", cfg.Addr, "data", cfg.DataDir, "users", len(users), "git", cfg.GitEnabled)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -99,11 +87,11 @@ func run(log *slog.Logger) error {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Warn("shutdown was not clean", "err", err)
 	}
-	// Flush any debounced commit so nothing is left uncommitted on restart.
-	return git.Close()
+	// Flush every vault's debounced commit so nothing is left uncommitted.
+	return reg.Close()
 }
 
-func housekeeping(ctx context.Context, idx *index.Index, log *slog.Logger) {
+func housekeeping(ctx context.Context, store *accounts.Store, log *slog.Logger) {
 	t := time.NewTicker(6 * time.Hour)
 	defer t.Stop()
 	for {
@@ -111,7 +99,7 @@ func housekeeping(ctx context.Context, idx *index.Index, log *slog.Logger) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if err := idx.PurgeExpiredSessions(); err != nil {
+			if err := store.PurgeExpiredSessions(); err != nil {
 				log.Warn("session purge failed", "err", err)
 			}
 		}

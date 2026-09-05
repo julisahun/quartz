@@ -10,8 +10,9 @@ No Docker, no self-hosted runner.
 | Port | `8086`, loopback only — no ufw rule needed |
 | Binary | `/opt/quartz/quartz` (+ `quartz-passwd`) |
 | Web | `/opt/quartz/web` (built PWA, served by the binary) |
-| Vault | `/srv/quartz/vault` — plain `.md`, a git repo, a valid Obsidian vault |
-| Index | `/srv/quartz/index.sqlite` — rebuildable, safe to delete |
+| Accounts | `/srv/quartz/accounts.sqlite` — users, vaults, members, sessions. **Not rebuildable; back this up.** |
+| Vaults | `/srv/quartz/vaults/<id>` — plain `.md`, a git repo each, valid Obsidian vaults (the first account keeps `/srv/quartz/vault`) |
+| Indexes | `/srv/quartz/index/<id>.sqlite` — rebuildable, safe to delete |
 | Public | `notes.sigint-pm.uk` |
 | Service | `quartz.service` |
 
@@ -48,19 +49,45 @@ PWA on a hosted runner, join the tailnet as `tag:ci`, rsync to
 
 Watch one with `gh run watch <id> -R julisahun/quartz --exit-status`.
 
+## Adding a person
+
+There is no signup page. Run the CLI **as `sigint`**, so the directories it
+creates are owned by the service:
+
+```bash
+ssh pi
+/opt/quartz/quartz-admin user add maria          # prompts for a password
+/opt/quartz/quartz-admin vault create casa -owner juli -name "Casa"
+/opt/quartz/quartz-admin vault share casa maria
+/opt/quartz/quartz-admin user list
+```
+
+No restart is needed: a new vault is opened the first time someone asks for it.
+Hand over the password out of band and let them change it later
+(`quartz-admin user passwd maria`).
+
+To take access away: `quartz-admin vault unshare casa maria`, which applies to
+the next request — no waiting for a session to expire. `quartz-admin user
+remove maria` keeps her notes on disk unless you pass `-purge`.
+
 ## Recovering a note
 
-The vault is a git repo, so history is on the Pi:
+Every vault is a git repo, so history is on the Pi:
 
 ```bash
 git -C /srv/quartz/vault log --oneline -- "notes/thing.md"
 git -C /srv/quartz/vault show <sha>:"notes/thing.md" > /tmp/thing.md
 ```
 
-`GET /api/history?path=...` exposes the same log through the API.
+`GET /api/v/<vault>/history?path=...` exposes the same log through the API.
 
-## If the index gets corrupted
+## If an index gets corrupted
 
-Stop the service, delete `/srv/quartz/index.sqlite*`, start it again. The vault
-is the source of truth; the index rebuilds from a scan. Clients re-sync via
-`/api/snapshot` because their cursor no longer matches.
+Stop the service, delete `/srv/quartz/index/<vault>.sqlite*`, start it again.
+The folder is the source of truth; the index rebuilds from a scan. Clients
+notice the new epoch and reconcile from the manifest.
+
+Deleting `accounts.sqlite` is a different matter — it holds the only record of
+who exists and who can open what. If it is lost and `QUARTZ_USER` /
+`QUARTZ_PASSWORD_HASH` are still in `.env`, the first account comes back on the
+next boot and everyone else has to be recreated.

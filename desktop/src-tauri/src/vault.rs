@@ -26,7 +26,9 @@ pub struct FileMeta {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Settings {
-    pub vault: PathBuf,
+    /// Vaults live side by side under this directory, one folder each, named
+    /// after the vault id the server uses.
+    pub vaults: PathBuf,
 }
 
 impl Settings {
@@ -40,7 +42,7 @@ impl Settings {
         }
         // The default is a folder the user can also open in Obsidian.
         let settings = Settings {
-            vault: home.join("Documents").join("quartz"),
+            vaults: home.join("Documents").join("quartz"),
         };
         settings.save(config_dir)?;
         Ok(settings)
@@ -58,20 +60,30 @@ pub struct VaultState {
 }
 
 impl VaultState {
-    pub fn root(&self) -> Result<PathBuf, String> {
-        let root = self.settings.lock().map_err(|_| "settings lock")?.vault.clone();
+    /// The folder holding one vault. The id comes from the server and becomes
+    /// a directory name, so it is checked as strictly as any other path input.
+    pub fn root(&self, vault: &str) -> Result<PathBuf, String> {
+        if !valid_vault_id(vault) {
+            return Err(format!("invalid vault id: {vault}"));
+        }
+        let base = self.settings.lock().map_err(|_| "settings lock")?.vaults.clone();
+        let root = base.join(vault);
         fs::create_dir_all(&root).map_err(|e| e.to_string())?;
         Ok(root)
     }
 
-    pub fn set_root(&self, path: String) -> Result<(), String> {
+    pub fn base(&self) -> Result<PathBuf, String> {
+        Ok(self.settings.lock().map_err(|_| "settings lock")?.vaults.clone())
+    }
+
+    pub fn set_base(&self, path: String) -> Result<(), String> {
         let mut settings = self.settings.lock().map_err(|_| "settings lock")?;
-        settings.vault = PathBuf::from(path);
+        settings.vaults = PathBuf::from(path);
         settings.save(&self.config_dir)
     }
 
-    pub fn list(&self) -> Result<Vec<FileMeta>, String> {
-        let root = self.root()?;
+    pub fn list(&self, vault: &str) -> Result<Vec<FileMeta>, String> {
+        let root = self.root(vault)?;
         let mut out = Vec::new();
         for entry in WalkDir::new(&root).follow_links(false).into_iter().filter_map(|e| e.ok()) {
             if !entry.file_type().is_file() {
@@ -102,15 +114,15 @@ impl VaultState {
         Ok(out)
     }
 
-    pub fn read(&self, rel: &str) -> Result<Vec<u8>, String> {
-        let path = self.resolve(rel)?;
+    pub fn read(&self, vault: &str, rel: &str) -> Result<Vec<u8>, String> {
+        let path = self.resolve(vault, rel)?;
         fs::read(path).map_err(|e| e.to_string())
     }
 
     /// Writes through a temporary file in the same directory, so a reader —
     /// Obsidian included — never sees half a note.
-    pub fn write(&self, rel: &str, data: &[u8]) -> Result<(), String> {
-        let path = self.resolve(rel)?;
+    pub fn write(&self, vault: &str, rel: &str, data: &[u8]) -> Result<(), String> {
+        let path = self.resolve(vault, rel)?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
@@ -126,15 +138,15 @@ impl VaultState {
         fs::rename(&tmp, &path).map_err(|e| e.to_string())
     }
 
-    pub fn delete(&self, rel: &str) -> Result<(), String> {
-        let path = self.resolve(rel)?;
+    pub fn delete(&self, vault: &str, rel: &str) -> Result<(), String> {
+        let path = self.resolve(vault, rel)?;
         match fs::remove_file(&path) {
             Ok(()) => {}
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(err) => return Err(err.to_string()),
         }
         // Leave no empty folders behind, the way Obsidian does.
-        let root = self.root()?;
+        let root = self.root(vault)?;
         let mut dir = path.parent().map(Path::to_path_buf);
         while let Some(current) = dir {
             if current == root || !current.starts_with(&root) {
@@ -153,25 +165,32 @@ impl VaultState {
 
     /// Sync bookkeeping lives beside the app's config, never inside the vault:
     /// the vault holds notes and nothing else.
-    pub fn read_sync_state(&self) -> Result<String, String> {
-        match fs::read_to_string(self.config_dir.join("sync-state.json")) {
+    pub fn read_sync_state(&self, vault: &str) -> Result<String, String> {
+        if !valid_vault_id(vault) {
+            return Err(format!("invalid vault id: {vault}"));
+        }
+        match fs::read_to_string(self.config_dir.join(format!("sync-state-{vault}.json"))) {
             Ok(text) => Ok(text),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
             Err(err) => Err(err.to_string()),
         }
     }
 
-    pub fn write_sync_state(&self, json: &str) -> Result<(), String> {
+    pub fn write_sync_state(&self, vault: &str, json: &str) -> Result<(), String> {
+        if !valid_vault_id(vault) {
+            return Err(format!("invalid vault id: {vault}"));
+        }
         fs::create_dir_all(&self.config_dir).map_err(|e| e.to_string())?;
-        fs::write(self.config_dir.join("sync-state.json"), json).map_err(|e| e.to_string())
+        fs::write(self.config_dir.join(format!("sync-state-{vault}.json")), json)
+            .map_err(|e| e.to_string())
     }
 
-    fn resolve(&self, rel: &str) -> Result<PathBuf, String> {
+    fn resolve(&self, vault: &str, rel: &str) -> Result<PathBuf, String> {
         let clean = clean_path(rel)?;
         if ignored(&clean) {
             return Err(format!("{clean} is not synced"));
         }
-        let root = self.root()?;
+        let root = self.root(vault)?;
         let joined = root.join(&clean);
         // Confirm the target stays inside the vault once symlinks are resolved.
         let probe = joined
@@ -185,6 +204,18 @@ impl VaultState {
         }
         Ok(joined)
     }
+}
+
+/// Vault ids come from the server but become directory names here, so they are
+/// held to the same rules the server enforces: no separators, no dot entries.
+fn valid_vault_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id != "."
+        && id != ".."
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
 }
 
 fn clean_path(rel: &str) -> Result<String, String> {
@@ -251,6 +282,16 @@ mod tests {
         }
         for path in ["a.md", ".obsidian/app.json", "img/pic.png"] {
             assert!(!ignored(path), "should keep {path}");
+        }
+    }
+
+    #[test]
+    fn rejects_bad_vault_ids() {
+        for bad in ["", "..", ".", "a/b", "a\\b", "../escape", "a b", &"x".repeat(65)] {
+            assert!(!valid_vault_id(bad), "accepted {bad}");
+        }
+        for good in ["juli", "casa", "maria.lopez", "shared-vault_2"] {
+            assert!(valid_vault_id(good), "rejected {good}");
         }
     }
 

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -34,13 +35,15 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ok, err := auth.VerifyPassword(req.Password, a.cfg.PasswordHash)
+	ok, err := a.accounts.Verify(req.User, req.Password)
 	if err != nil {
-		a.log.Error("password hash is unusable", "err", err)
+		a.log.Error("could not verify a password", "err", err)
 		writeError(w, http.StatusInternalServerError, "server_error", "authentication is misconfigured")
 		return
 	}
-	if !ok || req.User != a.cfg.User {
+	if !ok {
+		// One message for a wrong name and a wrong password: which of the two
+		// it was is not the caller's business.
 		a.log.Warn("failed login", "user", req.User, "ip", key)
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "wrong user or password")
 		return
@@ -56,14 +59,21 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if device == "" {
 		device = "unknown"
 	}
-	if err := a.idx.CreateSession(hash, device, a.cfg.SessionTTL); err != nil {
+	if err := a.accounts.CreateSession(hash, req.User, device, a.cfg.SessionTTL); err != nil {
 		writeError(w, http.StatusInternalServerError, "server_error", "could not store the session")
 		return
 	}
 	http.SetCookie(w, a.sessionCookie(token, int(a.cfg.SessionTTL.Seconds())))
+
+	vaults, err := a.accounts.VaultsFor(req.User)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "server_error", "could not list vaults")
+		return
+	}
 	body := map[string]any{
-		"user":      a.cfg.User,
+		"user":      req.User,
 		"device":    device,
+		"vaults":    vaults,
 		"expiresAt": time.Now().Add(a.cfg.SessionTTL).UTC().Format(time.RFC3339),
 	}
 	if req.Client == "desktop" {
@@ -76,7 +86,7 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if token := sessionToken(r); token != "" {
-		if err := a.idx.DeleteSession(auth.HashToken(token)); err != nil {
+		if err := a.accounts.DeleteSession(auth.HashToken(token)); err != nil {
 			a.log.Warn("could not delete session", "err", err)
 		}
 	}
@@ -84,30 +94,16 @@ func (a *API) handleLogout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleSession answers "who am I and what can I open", so a client needs one
+// round trip at startup.
 func (a *API) handleSession(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"user": a.cfg.User})
-}
-
-// sessionToken reads the session from the cookie a browser sends, or from the
-// Authorization header the desktop shell sends.
-func sessionToken(r *http.Request) string {
-	if c, err := r.Cookie(cookieName); err == nil && c.Value != "" {
-		return c.Value
+	user := userFrom(r)
+	vaults, err := a.accounts.VaultsFor(user)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "server_error", "could not list vaults")
+		return
 	}
-	const prefix = "Bearer "
-	if header := r.Header.Get("Authorization"); strings.HasPrefix(header, prefix) {
-		return strings.TrimSpace(header[len(prefix):])
-	}
-	return ""
-}
-
-// clientIP strips the ephemeral port so the rate limit budget belongs to the
-// caller, not to a single connection.
-func clientIP(r *http.Request) string {
-	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-		return host
-	}
-	return r.RemoteAddr
+	writeJSON(w, http.StatusOK, map[string]any{"user": user, "vaults": vaults})
 }
 
 func (a *API) sessionCookie(value string, maxAge int) *http.Cookie {
@@ -134,7 +130,7 @@ func (a *API) requireSession(next http.Handler) http.Handler {
 			return
 		}
 		hash := auth.HashToken(token)
-		sess, ok, err := a.idx.LookupSession(hash)
+		session, ok, err := a.accounts.LookupSession(hash)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "server_error", "session lookup failed")
 			return
@@ -144,12 +140,34 @@ func (a *API) requireSession(next http.Handler) http.Handler {
 			return
 		}
 		// Slide the expiry, but write at most once a day per session.
-		if time.Since(sess.LastSeen) > 24*time.Hour {
-			if err := a.idx.TouchSession(hash, a.cfg.SessionTTL); err != nil {
+		if time.Since(session.LastSeen) > 24*time.Hour {
+			if err := a.accounts.TouchSession(hash, a.cfg.SessionTTL); err != nil {
 				a.log.Warn("could not refresh session", "err", err)
 			}
 			http.SetCookie(w, a.sessionCookie(token, int(a.cfg.SessionTTL.Seconds())))
 		}
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userCtxKey, session.User)))
 	})
+}
+
+// sessionToken reads the session from the cookie a browser sends, or from the
+// Authorization header the desktop shell sends.
+func sessionToken(r *http.Request) string {
+	if c, err := r.Cookie(cookieName); err == nil && c.Value != "" {
+		return c.Value
+	}
+	const prefix = "Bearer "
+	if header := r.Header.Get("Authorization"); strings.HasPrefix(header, prefix) {
+		return strings.TrimSpace(header[len(prefix):])
+	}
+	return ""
+}
+
+// clientIP strips the ephemeral port so the rate limit budget belongs to the
+// caller, not to a single connection.
+func clientIP(r *http.Request) string {
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
 }

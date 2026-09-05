@@ -16,15 +16,17 @@ function tauri(): TauriApi {
 }
 
 /**
- * Bridges the storage seam to the Rust side. Every call is a Tauri command;
- * the Rust half owns path safety, hashing and atomic writes, exactly as the
- * server does for the vault on the Pi.
+ * Bridges the storage seam to the Rust side for one vault. Every call is a
+ * Tauri command; the Rust half owns path safety, hashing and atomic writes,
+ * exactly as the server does for the vaults on the Pi.
  */
-export const tauriBridge: DesktopBridge = {
-  list: () => tauri().invoke('vault_list'),
-  read: async (path) => new Uint8Array(await tauri().invoke<number[]>('vault_read', { path })),
-  write: (path, data) => tauri().invoke('vault_write', { path, data: Array.from(data) }),
-  remove: (path) => tauri().invoke('vault_delete', { path }),
-  stateRead: () => tauri().invoke('state_read'),
-  stateWrite: (json) => tauri().invoke('state_write', { json }),
+export function tauriBridge(vault: string): DesktopBridge {
+  return {
+    list: () => tauri().invoke('vault_list', { vault }),
+    read: async (path) => new Uint8Array(await tauri().invoke<number[]>('vault_read', { vault, path })),
+    write: (path, data) => tauri().invoke('vault_write', { vault, path, data: Array.from(data) }),
+    remove: (path) => tauri().invoke('vault_delete', { vault, path }),
+    stateRead: () => tauri().invoke('state_read', { vault }),
+    stateWrite: (json) => tauri().invoke('state_write', { vault, json }),
+  }
 }

@@ -53,7 +53,7 @@ func main() {
 func usage() {
 	fmt.Fprintln(os.Stderr, `quartzctl — sync a folder with a quartz server
 
-  login   -server URL -user NAME [-device NAME] [-dir DIR]
+  login   -server URL -user NAME [-vault ID] [-device NAME] [-dir DIR]
   sync    [-dir DIR]
   watch   [-dir DIR] [-interval 15s]
   status  [-dir DIR]`)
@@ -73,6 +73,7 @@ func cmdLogin(args []string) error {
 	user := fs.String("user", "juli", "user name")
 	device := fs.String("device", hostname(), "device name, used in conflict copies")
 	dir := fs.String("dir", ".", "local folder to sync")
+	vaultID := fs.String("vault", "", "vault to sync (default: your private one)")
 	fs.Parse(args)
 
 	if *server == "" {
@@ -98,16 +99,52 @@ func cmdLogin(args []string) error {
 		password = strings.TrimRight(line, "\r\n")
 	}
 
-	cookie, err := newClient(st).login(*user, password)
+	cookie, vaults, err := newClient(st).login(*user, password)
 	if err != nil {
 		return err
 	}
 	st.Cookie = cookie
+
+	chosen, err := chooseVault(vaults, *vaultID, *user)
+	if err != nil {
+		return err
+	}
+	st.Vault = chosen
 	if err := st.save(); err != nil {
 		return err
 	}
-	fmt.Printf("logged in to %s as %s (device %s)\n", *server, *user, *device)
+	fmt.Printf("logged in to %s as %s (device %s, vault %s)\n", *server, *user, *device, chosen)
+	if len(vaults) > 1 {
+		fmt.Fprintln(os.Stderr, "other vaults you can sync with -vault:")
+		for _, v := range vaults {
+			if v.ID != chosen {
+				fmt.Fprintf(os.Stderr, "  %s (%s, %s)\n", v.ID, v.Kind, v.Role)
+			}
+		}
+	}
 	return nil
+}
+
+// chooseVault picks the vault to sync: the one asked for, or the account's own
+// private vault when nothing was asked for.
+func chooseVault(vaults []vaultInfo, want, user string) (string, error) {
+	if want != "" {
+		for _, v := range vaults {
+			if v.ID == want {
+				return v.ID, nil
+			}
+		}
+		return "", fmt.Errorf("you have no access to a vault called %q", want)
+	}
+	for _, v := range vaults {
+		if v.Kind == "private" && v.Owner == user {
+			return v.ID, nil
+		}
+	}
+	if len(vaults) == 1 {
+		return vaults[0].ID, nil
+	}
+	return "", fmt.Errorf("say which vault to sync with -vault")
 }
 
 func openSyncer(dir string) (*syncer, error) {
@@ -115,7 +152,7 @@ func openSyncer(dir string) (*syncer, error) {
 	if err != nil {
 		return nil, err
 	}
-	if st.Server == "" || st.Cookie == "" {
+	if st.Server == "" || st.Cookie == "" || st.Vault == "" {
 		return nil, fmt.Errorf("no session in %s — run `quartzctl login` first", dir)
 	}
 	v, err := localVault(dir)
@@ -193,8 +230,8 @@ func cmdStatus(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("server   %s\nuser     %s\ndevice   %s\ncursor   %d\nfiles    %d local, %d tracked\n",
-		st.Server, st.User, st.Device, st.Cursor, len(files), len(st.Files))
+	fmt.Printf("server   %s\nuser     %s\nvault    %s\ndevice   %s\ncursor   %d\nfiles    %d local, %d tracked\n",
+		st.Server, st.User, st.Vault, st.Device, st.Cursor, len(files), len(st.Files))
 
 	dirty := 0
 	for _, f := range files {

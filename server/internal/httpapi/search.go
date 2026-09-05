@@ -8,7 +8,7 @@ import (
 func (a *API) handleSearch(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	hits, err := a.idx.Search(q, limit)
+	hits, err := serviceFrom(r).Index.Search(q, limit)
 	if err != nil {
 		// A malformed FTS expression is the user's half-typed query, not a fault.
 		a.log.Warn("search failed", "q", q, "err", err)
@@ -26,7 +26,7 @@ func (a *API) handleHistory(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 || limit > 200 {
 		limit = 30
 	}
-	entries, err := a.svc.Git.Log(p, limit)
+	entries, err := serviceFrom(r).Git.Log(p, limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "server_error", "could not read history")
 		return

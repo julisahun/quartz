@@ -50,6 +50,19 @@ export class OfflineError extends Error {
   }
 }
 
+export interface VaultSummary {
+  id: string
+  name: string
+  kind: 'private' | 'shared'
+  owner: string
+  role: 'owner' | 'member'
+}
+
+export interface Identity {
+  user: string
+  vaults: VaultSummary[]
+}
+
 /** Identifies the server's index. A new epoch means it was rebuilt. */
 export interface Snapshot {
   head: number
@@ -64,10 +77,12 @@ export interface ChangePage {
   more: boolean
 }
 
-export interface Api {
-  login(user: string, password: string, device: string, desktop?: boolean): Promise<void>
-  logout(): Promise<void>
-  session(): Promise<boolean>
+/**
+ * Everything inside one vault. The sync engine is handed one of these and
+ * never learns which vault it is working on — that is the whole point: a vault
+ * is the unit of sync, whoever it belongs to.
+ */
+export interface VaultApi {
   snapshot(): Promise<Snapshot>
   changes(since: number): Promise<ChangePage>
   getFile(path: string): Promise<{ data: Uint8Array; hash: string }>
@@ -75,6 +90,16 @@ export interface Api {
   putFile(path: string, data: Uint8Array, baseHash: string): Promise<FileMeta>
   deleteFile(path: string, baseHash: string): Promise<void>
   search(q: string): Promise<SearchHit[]>
+}
+
+/** Account-level calls, plus a way to get at one vault. */
+export interface Api {
+  login(user: string, password: string, device: string, desktop?: boolean): Promise<Identity>
+  logout(): Promise<void>
+  /** The signed-in identity, or undefined when the session is gone. */
+  session(): Promise<Identity | undefined>
+  vaults(): Promise<VaultSummary[]>
+  vault(id: string): VaultApi
 }
 
 export class HttpApi implements Api {
@@ -120,18 +145,18 @@ export class HttpApi implements Api {
     return resp
   }
 
-  async login(user: string, password: string, device: string, desktop = false): Promise<void> {
+  async login(user: string, password: string, device: string, desktop = false): Promise<Identity> {
     const resp = await this.request('/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user, password, device, client: desktop ? 'desktop' : 'web' }),
     })
-    if (!desktop) return
     const body = await resp.json()
-    if (typeof body.token === 'string') {
+    if (desktop && typeof body.token === 'string') {
       this.token = body.token
       this.onToken?.(body.token)
     }
+    return { user: body.user, vaults: body.vaults ?? [] }
   }
 
   async logout(): Promise<void> {
@@ -140,56 +165,56 @@ export class HttpApi implements Api {
     this.onToken?.('')
   }
 
-  async session(): Promise<boolean> {
+  async session(): Promise<Identity | undefined> {
     try {
-      await this.request('/auth/session')
-      return true
+      const resp = await this.request('/auth/session')
+      const body = await resp.json()
+      return { user: body.user, vaults: body.vaults ?? [] }
     } catch (err) {
-      if (err instanceof ApiError && err.isAuth) return false
+      if (err instanceof ApiError && err.isAuth) return undefined
       throw err
     }
   }
 
-  async snapshot(): Promise<Snapshot> {
-    const resp = await this.request('/api/snapshot')
-    return resp.json()
+  async vaults(): Promise<VaultSummary[]> {
+    const resp = await this.request('/api/vaults')
+    return (await resp.json()).vaults ?? []
   }
 
-  async changes(since: number): Promise<ChangePage> {
-    const resp = await this.request(`/api/changes?since=${since}`)
-    return resp.json()
+  /** Binds every content call below to one vault. */
+  vault(id: string): VaultApi {
+    const base = `/api/v/${encodeURIComponent(id)}`
+    return {
+      snapshot: async () => (await this.request(`${base}/snapshot`)).json(),
+      changes: async (since: number) => (await this.request(`${base}/changes?since=${since}`)).json(),
+      getFile: async (path: string) => {
+        const resp = await this.request(`${base}/file?path=${encodeURIComponent(path)}`)
+        const hash = (resp.headers.get('ETag') ?? '').replace(/"/g, '')
+        return { data: new Uint8Array(await resp.arrayBuffer()), hash }
+      },
+      putFile: async (path: string, data: Uint8Array, baseHash: string) => {
+        const headers: Record<string, string> = { 'Content-Type': 'application/octet-stream' }
+        if (baseHash) headers['If-Match'] = `"${baseHash}"`
+        else headers['If-None-Match'] = '*'
+        const body = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
+        const resp = await this.request(`${base}/file?path=${encodeURIComponent(path)}`, {
+          method: 'PUT',
+          headers,
+          body,
+        })
+        return resp.json()
+      },
+      deleteFile: async (path: string, baseHash: string) => {
+        await this.request(`${base}/file?path=${encodeURIComponent(path)}`, {
+          method: 'DELETE',
+          headers: { 'If-Match': `"${baseHash}"` },
+        })
+      },
+      search: async (q: string) => {
+        const resp = await this.request(`${base}/search?q=${encodeURIComponent(q)}`)
+        return (await resp.json()).hits ?? []
+      },
+    }
   }
 
-  async getFile(path: string): Promise<{ data: Uint8Array; hash: string }> {
-    const resp = await this.request(`/api/file?path=${encodeURIComponent(path)}`)
-    const hash = (resp.headers.get('ETag') ?? '').replace(/"/g, '')
-    const data = new Uint8Array(await resp.arrayBuffer())
-    return { data, hash }
-  }
-
-  async putFile(path: string, data: Uint8Array, baseHash: string): Promise<FileMeta> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/octet-stream' }
-    if (baseHash) headers['If-Match'] = `"${baseHash}"`
-    else headers['If-None-Match'] = '*'
-    const body = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
-    const resp = await this.request(`/api/file?path=${encodeURIComponent(path)}`, {
-      method: 'PUT',
-      headers,
-      body,
-    })
-    return resp.json()
-  }
-
-  async deleteFile(path: string, baseHash: string): Promise<void> {
-    await this.request(`/api/file?path=${encodeURIComponent(path)}`, {
-      method: 'DELETE',
-      headers: { 'If-Match': `"${baseHash}"` },
-    })
-  }
-
-  async search(q: string): Promise<SearchHit[]> {
-    const resp = await this.request(`/api/search?q=${encodeURIComponent(q)}`)
-    const body = await resp.json()
-    return body.hits ?? []
-  }
 }

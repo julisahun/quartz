@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/http/httptest"
@@ -10,54 +11,73 @@ import (
 	"testing"
 	"time"
 
-	"quartz/internal/auth"
+	"quartz/internal/accounts"
 	"quartz/internal/config"
-	"quartz/internal/gitstore"
 	"quartz/internal/httpapi"
-	"quartz/internal/index"
+	"quartz/internal/provision"
+	"quartz/internal/registry"
 	"quartz/internal/service"
-	"quartz/internal/vault"
 )
 
 const password = "hunter2-hunter2"
 
-// startServer boots the real server stack against a temporary vault.
-func startServer(t *testing.T) (*httptest.Server, *service.Service, string) {
-	t.Helper()
-	dir := t.TempDir()
-	vaultDir := filepath.Join(dir, "vault")
+// testServer is the real server stack over a temporary data directory.
+type testServer struct {
+	t     *testing.T
+	http  *httptest.Server
+	store *accounts.Store
+	reg   *registry.Registry
+	cfg   config.Config
+}
 
-	hash, err := auth.HashPassword(password)
-	if err != nil {
-		t.Fatal(err)
-	}
+func startServer(t *testing.T) *testServer {
+	t.Helper()
 	cfg := config.Config{
-		VaultDir:     vaultDir,
-		IndexDB:      filepath.Join(dir, "index.sqlite"),
-		User:         "juli",
-		PasswordHash: hash,
+		DataDir:      t.TempDir(),
 		SessionTTL:   time.Hour,
 		MaxFileBytes: 1 << 20,
+		GitEnabled:   false,
 	}
-	v, err := vault.Open(cfg.VaultDir, cfg.MaxFileBytes)
+	store, err := accounts.Open(cfg.AccountsDB())
 	if err != nil {
 		t.Fatal(err)
 	}
-	idx, err := index.Open(cfg.IndexDB)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { idx.Close() })
+	t.Cleanup(func() { store.Close() })
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	git, err := gitstore.NewDisabled(v.Root(), log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	svc := service.New(v, idx, git, log)
-	srv := httptest.NewServer(httpapi.New(cfg, svc, idx, log).Router())
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	reg := registry.New(ctx, cfg, store, log)
+	t.Cleanup(func() { reg.Close() })
+
+	srv := httptest.NewServer(httpapi.New(cfg, store, reg, log).Router())
 	t.Cleanup(srv.Close)
-	return srv, svc, v.Root()
+
+	ts := &testServer{t: t, http: srv, store: store, reg: reg, cfg: cfg}
+	ts.account("juli")
+	return ts
+}
+
+// account creates a user (with their private vault) unless they already exist.
+func (ts *testServer) account(name string) {
+	ts.t.Helper()
+	if exists, err := ts.store.UserExists(name); err != nil {
+		ts.t.Fatal(err)
+	} else if exists {
+		return
+	}
+	if err := provision.User(ts.store, ts.cfg, name, password); err != nil {
+		ts.t.Fatal(err)
+	}
+}
+
+func (ts *testServer) service(vaultID string) *service.Service {
+	ts.t.Helper()
+	svc, err := ts.reg.Service(vaultID)
+	if err != nil {
+		ts.t.Fatal(err)
+	}
+	return svc
 }
 
 // device is one synced folder: a laptop, a phone, or the CLI mirror.
@@ -67,20 +87,31 @@ type device struct {
 	s   *syncer
 }
 
-func newDevice(t *testing.T, srv *httptest.Server, name string) *device {
+// newDevice signs a user in and binds the folder to one of their vaults.
+func newDevice(t *testing.T, ts *testServer, name string) *device {
+	return newDeviceAs(t, ts, name, "juli", "")
+}
+
+func newDeviceAs(t *testing.T, ts *testServer, name, user, vaultID string) *device {
 	t.Helper()
+	ts.account(user)
 	dir := t.TempDir()
 	st, err := loadState(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	st.Server, st.User, st.Device = srv.URL, "juli", name
+	st.Server, st.User, st.Device = ts.http.URL, user, name
 
-	cookie, err := newClient(st).login("juli", password)
+	cookie, vaults, err := newClient(st).login(user, password)
 	if err != nil {
 		t.Fatal(err)
 	}
 	st.Cookie = cookie
+	chosen, err := chooseVault(vaults, vaultID, user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Vault = chosen
 	if err := st.save(); err != nil {
 		t.Fatal(err)
 	}
@@ -130,9 +161,9 @@ func (d *device) files() []string {
 }
 
 func TestSyncRoundTripBetweenDevices(t *testing.T) {
-	srv, _, _ := startServer(t)
-	laptop := newDevice(t, srv, "laptop")
-	phone := newDevice(t, srv, "phone")
+	ts := startServer(t)
+	laptop := newDevice(t, ts, "laptop")
+	phone := newDevice(t, ts, "phone")
 
 	laptop.write("notes/todo.md", "- milk\n")
 	if stats := laptop.sync(); stats.Pushed != 1 {
@@ -157,9 +188,9 @@ func TestSyncRoundTripBetweenDevices(t *testing.T) {
 func TestOfflineEditsOnBothDevicesKeepBoth(t *testing.T) {
 	// The plan's milestone-3 acceptance: edit the same note offline on two
 	// devices, reconnect, and both versions survive with a conflict copy.
-	srv, _, _ := startServer(t)
-	laptop := newDevice(t, srv, "laptop")
-	phone := newDevice(t, srv, "phone")
+	ts := startServer(t)
+	laptop := newDevice(t, ts, "laptop")
+	phone := newDevice(t, ts, "phone")
 
 	laptop.write("todo.md", "shared base\n")
 	laptop.sync()
@@ -207,9 +238,9 @@ func TestOfflineEditsOnBothDevicesKeepBoth(t *testing.T) {
 }
 
 func TestDeleteSyncsAndLosesToEdit(t *testing.T) {
-	srv, _, _ := startServer(t)
-	laptop := newDevice(t, srv, "laptop")
-	phone := newDevice(t, srv, "phone")
+	ts := startServer(t)
+	laptop := newDevice(t, ts, "laptop")
+	phone := newDevice(t, ts, "phone")
 
 	laptop.write("gone.md", "temporary\n")
 	laptop.write("stays.md", "keep\n")
@@ -245,8 +276,10 @@ func TestDeleteSyncsAndLosesToEdit(t *testing.T) {
 
 func TestObsidianWriteReachesDevices(t *testing.T) {
 	// Something writes the vault directly, behind the server's back.
-	srv, svc, root := startServer(t)
-	laptop := newDevice(t, srv, "laptop")
+	ts := startServer(t)
+	svc := ts.service("juli")
+	root := svc.Vault.Root()
+	laptop := newDevice(t, ts, "laptop")
 	laptop.sync()
 
 	if err := os.WriteFile(filepath.Join(root, "from-obsidian.md"), []byte("typed in obsidian\n"), 0o644); err != nil {
@@ -263,8 +296,8 @@ func TestObsidianWriteReachesDevices(t *testing.T) {
 }
 
 func TestSyncIsIdempotent(t *testing.T) {
-	srv, _, _ := startServer(t)
-	laptop := newDevice(t, srv, "laptop")
+	ts := startServer(t)
+	laptop := newDevice(t, ts, "laptop")
 	laptop.write("a.md", "one\n")
 	laptop.sync()
 
@@ -279,12 +312,12 @@ func TestSyncIsIdempotent(t *testing.T) {
 func TestBootstrapAdoptsIdenticalFiles(t *testing.T) {
 	// A device that already holds a copy of the vault (say, an Obsidian folder
 	// synced by other means) must not produce a conflict for identical files.
-	srv, _, _ := startServer(t)
-	laptop := newDevice(t, srv, "laptop")
+	ts := startServer(t)
+	laptop := newDevice(t, ts, "laptop")
 	laptop.write("same.md", "identical\n")
 	laptop.sync()
 
-	desktop := newDevice(t, srv, "desktop")
+	desktop := newDevice(t, ts, "desktop")
 	desktop.write("same.md", "identical\n")
 	stats := desktop.sync()
 	if stats.Conflicts != 0 {
@@ -292,5 +325,88 @@ func TestBootstrapAdoptsIdenticalFiles(t *testing.T) {
 	}
 	if len(desktop.files()) != 1 {
 		t.Fatalf("desktop files = %v", desktop.files())
+	}
+}
+
+func TestVaultsAreIsolatedBetweenAccounts(t *testing.T) {
+	// Two people, two private vaults, one server: neither mirror ever sees
+	// the other's notes.
+	ts := startServer(t)
+	julis := newDeviceAs(t, ts, "juli-laptop", "juli", "")
+	marias := newDeviceAs(t, ts, "maria-laptop", "maria", "")
+
+	julis.write("private.md", "juli's thoughts\n")
+	julis.sync()
+	marias.write("private.md", "maria's thoughts\n")
+	marias.sync()
+
+	if got := julis.read("private.md"); got != "juli's thoughts\n" {
+		t.Errorf("juli's mirror holds %q", got)
+	}
+	if got := marias.read("private.md"); got != "maria's thoughts\n" {
+		t.Errorf("maria's mirror holds %q", got)
+	}
+	if julis.s.st.Vault == marias.s.st.Vault {
+		t.Fatal("both devices bound to the same vault")
+	}
+	for _, p := range julis.files() {
+		if strings.Contains(p, "conflict") {
+			t.Errorf("juli got a conflict copy from another account: %v", julis.files())
+		}
+	}
+}
+
+func TestSharedVaultSyncsBetweenAccounts(t *testing.T) {
+	ts := startServer(t)
+	ts.account("maria")
+	if err := provision.SharedVault(ts.store, ts.cfg, "casa", "Casa", "juli"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ts.store.AddMember("casa", "maria", accounts.Member); err != nil {
+		t.Fatal(err)
+	}
+
+	julis := newDeviceAs(t, ts, "juli-laptop", "juli", "casa")
+	marias := newDeviceAs(t, ts, "maria-phone", "maria", "casa")
+
+	julis.write("shopping.md", "- bread\n")
+	julis.sync()
+	if stats := marias.sync(); stats.Pulled != 1 {
+		t.Fatalf("maria's sync = %+v", stats)
+	}
+	if got := marias.read("shopping.md"); got != "- bread\n" {
+		t.Fatalf("maria sees %q", got)
+	}
+
+	// And an edit of hers comes back to juli.
+	marias.write("shopping.md", "- bread\n- milk\n")
+	marias.sync()
+	julis.sync()
+	if got := julis.read("shopping.md"); got != "- bread\n- milk\n" {
+		t.Fatalf("juli sees %q", got)
+	}
+}
+
+func TestChoosingAVault(t *testing.T) {
+	vaults := []vaultInfo{
+		{ID: "juli", Kind: "private", Owner: "juli", Role: "owner"},
+		{ID: "casa", Kind: "shared", Owner: "juli", Role: "owner"},
+	}
+	if got, err := chooseVault(vaults, "", "juli"); err != nil || got != "juli" {
+		t.Errorf("default = %q, %v; want the private vault", got, err)
+	}
+	if got, err := chooseVault(vaults, "casa", "juli"); err != nil || got != "casa" {
+		t.Errorf("explicit = %q, %v", got, err)
+	}
+	if _, err := chooseVault(vaults, "someone-else", "juli"); err == nil {
+		t.Error("a vault the account cannot open was accepted")
+	}
+	// A member with no private vault of their own, and only one option.
+	guest := []vaultInfo{{ID: "casa", Kind: "shared", Owner: "juli", Role: "member"}}
+	if got, err := chooseVault(guest, "", "maria"); err != nil || got != "casa" {
+		t.Errorf("single option = %q, %v", got, err)
+	}
+	if _, err := chooseVault(nil, "", "nobody"); err == nil {
+		t.Error("an account with no vaults was accepted")
 	}
 }

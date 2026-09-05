@@ -2,8 +2,8 @@
 package config
 
 import (
-	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -11,13 +11,16 @@ import (
 type Config struct {
 	Addr string // listen address, loopback only in production
 
-	VaultDir  string // the store of record: plain .md files, a git repo
-	IndexDB   string // rebuildable SQLite index (change journal + FTS)
+	DataDir   string // everything the server owns lives under here
 	WebDir    string // optional: built PWA served from the same origin
 	DevOrigin string // optional: extra CORS origin for `npm run dev`
 
-	User         string // single user (see DECISIONS.md)
-	PasswordHash string // argon2id PHC string, from quartz-passwd
+	// Carried over from the single-user deployment: when the accounts
+	// database is empty and these are set, the first user and their private
+	// vault are created from them, so an upgrade needs no manual steps.
+	LegacyVaultDir     string
+	LegacyUser         string
+	LegacyPasswordHash string
 
 	SessionTTL   time.Duration
 	SecureCookie bool
@@ -30,16 +33,16 @@ type Config struct {
 
 func Load() (Config, error) {
 	c := Config{
-		Addr:         env("QUARTZ_ADDR", "127.0.0.1:8086"),
-		VaultDir:     env("QUARTZ_VAULT", "/srv/quartz/vault"),
-		IndexDB:      env("QUARTZ_INDEX", "/srv/quartz/index.sqlite"),
-		WebDir:       env("QUARTZ_WEB_DIR", ""),
-		DevOrigin:    env("QUARTZ_DEV_ORIGIN", ""),
-		User:         env("QUARTZ_USER", "juli"),
-		PasswordHash: os.Getenv("QUARTZ_PASSWORD_HASH"),
-		SecureCookie: envBool("QUARTZ_SECURE_COOKIE", true),
-		GitEnabled:   envBool("QUARTZ_GIT", true),
-		MaxFileBytes: int64(envInt("QUARTZ_MAX_FILE_MB", 64)) << 20,
+		Addr:               env("QUARTZ_ADDR", "127.0.0.1:8086"),
+		DataDir:            env("QUARTZ_DATA", "/srv/quartz"),
+		WebDir:             env("QUARTZ_WEB_DIR", ""),
+		DevOrigin:          env("QUARTZ_DEV_ORIGIN", ""),
+		LegacyVaultDir:     os.Getenv("QUARTZ_VAULT"),
+		LegacyUser:         os.Getenv("QUARTZ_USER"),
+		LegacyPasswordHash: os.Getenv("QUARTZ_PASSWORD_HASH"),
+		SecureCookie:       envBool("QUARTZ_SECURE_COOKIE", true),
+		GitEnabled:         envBool("QUARTZ_GIT", true),
+		MaxFileBytes:       int64(envInt("QUARTZ_MAX_FILE_MB", 64)) << 20,
 	}
 
 	// Long sliding TTL: an offline launch must never bounce you to a login
@@ -50,10 +53,21 @@ func Load() (Config, error) {
 	debounce := envInt("QUARTZ_GIT_DEBOUNCE_SECONDS", 30)
 	c.GitDebounce = time.Duration(debounce) * time.Second
 
-	if c.PasswordHash == "" {
-		return c, fmt.Errorf("QUARTZ_PASSWORD_HASH is not set (generate one with quartz-passwd)")
-	}
 	return c, nil
+}
+
+// AccountsDB holds users, vaults, memberships and sessions. Unlike a vault
+// index it is not rebuildable, so it is the one file worth backing up
+// separately from the notes themselves.
+func (c Config) AccountsDB() string { return filepath.Join(c.DataDir, "accounts.sqlite") }
+
+// VaultsDir is where new vaults are created.
+func (c Config) VaultsDir() string { return filepath.Join(c.DataDir, "vaults") }
+
+// IndexPath keeps a vault's index outside the vault itself: anything inside
+// would sync to every client and show up in Obsidian.
+func (c Config) IndexPath(vaultID string) string {
+	return filepath.Join(c.DataDir, "index", vaultID+".sqlite")
 }
 
 func env(key, def string) string {

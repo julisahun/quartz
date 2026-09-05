@@ -14,7 +14,7 @@ import (
 
 func (a *API) handleGetFile(w http.ResponseWriter, r *http.Request) {
 	p := r.URL.Query().Get("path")
-	data, meta, err := a.svc.Read(p)
+	data, meta, err := serviceFrom(r).Read(p)
 	if err != nil {
 		writeVaultError(w, err)
 		return
@@ -60,7 +60,7 @@ func (a *API) handlePutFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	meta, err := a.svc.Write(p, body, unquoteETag(ifMatch), mustNotExist)
+	meta, err := serviceFrom(r).Write(p, body, unquoteETag(ifMatch), mustNotExist)
 	if errors.Is(err, vault.ErrConflict) {
 		// 412 carries the server's current hash so the client can fetch it and
 		// write a conflict copy without a second round trip.
@@ -85,7 +85,7 @@ func (a *API) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusPreconditionRequired, "precondition_required", "send If-Match: <hash>")
 		return
 	}
-	err := a.svc.Delete(p, unquoteETag(ifMatch))
+	err := serviceFrom(r).Delete(p, unquoteETag(ifMatch))
 	if errors.Is(err, vault.ErrConflict) {
 		writeError(w, http.StatusPreconditionFailed, "conflict", "the server has a different version")
 		return

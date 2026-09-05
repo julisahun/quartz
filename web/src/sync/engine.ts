@@ -1,4 +1,4 @@
-import { ApiError, type Api, type Change } from '../api/client'
+import { ApiError, type Change, type VaultApi } from '../api/client'
 import type { VaultStore } from '../vault/types'
 import { conflictPath } from './conflict'
 
@@ -34,7 +34,7 @@ const emptyStats = (): SyncStats => ({ pulled: 0, pushed: 0, deleted: 0, conflic
 export class SyncEngine {
   constructor(
     private readonly store: VaultStore,
-    private readonly api: Api,
+    private readonly api: VaultApi,
     private readonly opts: SyncOptions,
   ) {}
 

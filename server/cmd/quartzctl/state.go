@@ -16,6 +16,7 @@ type state struct {
 	User   string                `json:"user"`
 	Device string                `json:"device"`
 	Cookie string                `json:"cookie"`
+	Vault  string                `json:"vault"`
 	Cursor int64                 `json:"cursor"`
 	Files  map[string]fileRecord `json:"files"`
 
