@@ -111,5 +111,40 @@ Tests: `go test ./...` (add `-race` before pushing).
 | `QUARTZ_MAX_FILE_MB` | `64` | attachment size limit |
 | `QUARTZ_DEV_ORIGIN` | *(unset)* | extra CORS origin for the Vite dev server |
 
+## The web app
+
+`web/` is one frontend for all three shells. Everything it stores goes through
+`src/vault/types.ts` — the seam — so the browser (IndexedDB) and the desktop
+(a real folder) differ in one file and nothing else.
+
+```bash
+cd web
+npm install
+npm run dev        # proxies /api and /auth to 127.0.0.1:8086
+npm test           # sync engine, live preview, path helpers
+npm run build
+```
+
+Live preview is a CodeMirror 6 StateField that hides markup and puts it back on
+the line you are editing. Constructs were added one at a time: headings,
+emphasis, inline code, lists, checkboxes, links, `[[wikilinks]]`, image embeds,
+blockquotes, code fences, horizontal rules, tables. Code fences keep their
+visible-but-dimmed ``` markers rather than disappearing, which keeps the
+cursor's path through a fence obvious.
+
+The desktop shell is in [`desktop/`](desktop/README.md).
+
+## Where each milestone stands
+
+| | | |
+|---|---|---|
+| M0 | Safety net | vault is a git repo, deleted notes recoverable; off-box backup still open |
+| M1 | Server + sync | done — API, watcher, journal, git, `quartzctl` |
+| M2 | Read-only client | done — PWA, offline reads, FTS5 search |
+| M3 | Editing + sync | done — pending queue, `If-Match` push, conflict sidecars |
+| M4 | Live preview | done for the construct list above |
+| M5 | Tauri desktop | shell builds and the seam is swapped; signing and updates are not set up |
+| M6 | iOS hardening | persistent storage, eviction recovery, keyboard-aware scrolling; the escape hatch has not been needed |
+
 Deployment lives in [`deploy/README.md`](deploy/README.md).
 Open questions and their answers are in [`DECISIONS.md`](DECISIONS.md).
