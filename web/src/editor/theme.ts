@@ -24,7 +24,8 @@ export const editorTheme = EditorView.theme({
     caretColor: 'var(--accent)',
     maxWidth: 'var(--measure)',
     margin: '0 auto',
-    padding: '1.2rem 1rem',
+    // The insets keep text off the rounded corners and the notch in landscape.
+    padding: '1.2rem max(1rem, env(safe-area-inset-right)) 1.2rem max(1rem, env(safe-area-inset-left))',
   },
   '&.cm-focused': { outline: 'none' },
   '.cm-line': { padding: '0 2px' },

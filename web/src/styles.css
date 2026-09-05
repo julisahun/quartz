@@ -23,6 +23,16 @@
   --editor-font-size: 16px;
   --measure: 46rem;
 
+  /* The smallest thing a finger can be asked to hit. */
+  --tap: 44px;
+  --radius: 10px;
+  --slide: 0.24s cubic-bezier(0.2, 0.7, 0.3, 1);
+
+  --sat: env(safe-area-inset-top);
+  --sab: env(safe-area-inset-bottom);
+  --sal: env(safe-area-inset-left);
+  --sar: env(safe-area-inset-right);
+
   color-scheme: light dark;
 }
 
@@ -72,11 +82,20 @@ button {
   font: inherit;
   color: inherit;
   cursor: pointer;
+  /* No 300ms wait for a double-tap, and no grey flash on press. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
-input {
+input,
+select,
+textarea {
   font: inherit;
   color: inherit;
+  /* 16px is the threshold below which iOS zooms the page on focus. Keeping
+     every field at or above it is what actually stops the zoom — blocking it
+     in the viewport tag would take magnification away from everyone. */
+  font-size: max(16px, 1rem);
   background: var(--bg-raised);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -84,6 +103,7 @@ input {
 }
 
 input:focus-visible,
+select:focus-visible,
 button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
@@ -104,6 +124,86 @@ button:focus-visible {
   color: var(--faint);
 }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---------- buttons ---------- */
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  min-width: var(--tap);
+  min-height: var(--tap);
+  padding: 0 0.35rem;
+  background: none;
+  border: none;
+  border-radius: var(--radius);
+  color: var(--muted);
+}
+
+.icon-button:hover,
+.icon-button:active {
+  color: var(--text);
+}
+
+.icon-button-text {
+  font-size: 0.95rem;
+}
+
+.button {
+  min-height: var(--tap);
+  padding: 0 1.1rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg);
+  font-size: 0.95rem;
+}
+
+.button.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 600;
+}
+
+.button.danger {
+  background: var(--danger);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 600;
+}
+
+.button[disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ghost {
+  min-height: 34px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 0.3em 0.6em;
+  color: var(--muted);
+}
+
+.ghost:hover {
+  background: var(--bg-raised);
+  color: var(--text);
+}
+
+.ghost.danger:hover {
+  color: var(--danger);
+}
+
 /* ---------- login ---------- */
 
 .login {
@@ -111,6 +211,8 @@ button:focus-visible {
   place-items: center;
   height: 100%;
   padding: 1rem;
+  padding-top: calc(1rem + var(--sat));
+  padding-bottom: calc(1rem + var(--sab));
 }
 
 .login-card {
@@ -141,12 +243,17 @@ button:focus-visible {
   color: var(--muted);
 }
 
+.login-card input {
+  min-height: var(--tap);
+}
+
 .login-card button[type='submit'] {
   margin-top: 0.4rem;
+  min-height: var(--tap);
   background: var(--accent);
   color: #fff;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius);
   padding: 0.6em;
   font-weight: 600;
 }
@@ -161,20 +268,72 @@ button:focus-visible {
 .app {
   display: grid;
   grid-template-columns: 17rem 1fr;
-  grid-template-rows: 1fr auto;
-  grid-template-areas: 'sidebar pane' 'status status';
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas: 'banner banner' 'sidebar pane' 'status status';
   height: 100%;
+  overflow: hidden;
 }
 
 .sidebar {
   grid-area: sidebar;
+  position: relative;
   background: var(--sidebar-bg);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding-top: env(safe-area-inset-top);
+  padding-top: var(--sat);
 }
+
+.pane {
+  grid-area: pane;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+/* ---------- top bars ---------- */
+
+.appbar {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 48px;
+  padding-right: calc(0.35rem + var(--sar));
+  padding-left: calc(0.35rem + var(--sal));
+  border-bottom: 1px solid var(--border);
+  background: var(--sidebar-bg);
+}
+
+.pane .appbar {
+  background: var(--bg);
+  padding-top: var(--sat);
+}
+
+.appbar-title {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-family: var(--font-heading);
+  font-size: 1.05rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.appbar-slot {
+  display: flex;
+  align-items: center;
+  min-width: 3.5rem;
+}
+
+.appbar-slot.end {
+  justify-content: flex-end;
+}
+
+/* ---------- note list ---------- */
 
 .vault-switcher {
   display: block;
@@ -183,40 +342,64 @@ button:focus-visible {
 
 .vault-switcher select {
   width: 100%;
-  font: inherit;
-  font-size: 0.9rem;
-  color: var(--text);
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.4em 0.5em;
-}
-
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
+  min-height: var(--tap);
 }
 
 .sidebar-head {
   display: flex;
   gap: 0.4rem;
-  padding: 0.7rem;
+  padding: 0.55rem calc(0.6rem + var(--sar)) 0.55rem calc(0.6rem + var(--sal));
   border-bottom: 1px solid var(--border);
 }
 
 .search {
   flex: 1;
   min-width: 0;
+  min-height: var(--tap);
+}
+
+.list-scroll {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .note-list {
-  overflow-y: auto;
-  padding: 0.4rem 0.4rem 1rem;
   flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.4rem calc(0.4rem + var(--sar)) 1rem calc(0.4rem + var(--sal));
+  transform: translateY(var(--pull, 0px));
+}
+
+.list-scroll:not(.pulling) .note-list {
+  transition: transform 0.2s ease;
+}
+
+.pull-indicator {
+  position: absolute;
+  top: 0.4rem;
+  left: 50%;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  opacity: var(--pull-ratio, 0);
+  transform: translate(-50%, calc(var(--pull, 0px) - 2.6rem));
+}
+
+.list-scroll.refreshing .pull-indicator svg {
+  animation: spin 0.9s linear infinite;
 }
 
 .folder {
@@ -227,17 +410,55 @@ button:focus-visible {
   margin: 0.9rem 0 0.3rem 0.6rem;
 }
 
-.note-row {
+.row-wrap {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.row-action {
+  position: absolute;
+  inset: 0 0 0 auto;
+  z-index: 1;
+  width: 92px;
+  /* Parked outside the row, which the wrapper clips away: a button sitting
+     under a rounded corner leaves a hairline of colour on the curve. */
+  transform: translateX(100%);
+  transition: transform 0.18s ease;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 0.15rem;
-  width: 100%;
-  text-align: left;
-  background: none;
   border: none;
-  border-radius: 8px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.72rem;
+}
+
+.note-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 40px;
+  text-align: left;
+  background: var(--sidebar-bg);
+  border: none;
+  /* Square on purpose: the wrapper does the rounding, and a radius here would
+     leave the delete button showing through at the corners. */
+  border-radius: 0;
   padding: 0.45rem 0.6rem;
   line-height: 1.35;
+}
+
+.note-text {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.15rem;
 }
 
 .note-row:hover {
@@ -264,6 +485,11 @@ button:focus-visible {
   font-weight: 600;
 }
 
+.note-chevron {
+  display: none;
+  color: var(--faint);
+}
+
 .tag {
   margin-left: 0.4em;
   font-size: 0.65rem;
@@ -278,13 +504,28 @@ button:focus-visible {
   padding: 1rem 0.6rem;
 }
 
-.pane {
-  grid-area: pane;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
+.fab {
+  position: absolute;
+  right: calc(1rem + var(--sar));
+  bottom: calc(1rem + var(--sab));
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.22);
 }
+
+.fab svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* ---------- editor ---------- */
 
 .editor,
 .editor-empty {
@@ -297,6 +538,64 @@ button:focus-visible {
   display: grid;
   place-items: center;
   color: var(--faint);
+  padding: 1rem;
+  text-align: center;
+}
+
+/* ---------- keyboard toolbar ---------- */
+
+.toolbar {
+  display: flex;
+  align-items: stretch;
+  border-top: 1px solid var(--border);
+  background: var(--sidebar-bg);
+  padding-left: var(--sal);
+  padding-right: var(--sar);
+}
+
+.toolbar-scroll {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 0.1rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.toolbar-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.tool {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  min-width: var(--tap);
+  height: var(--tap);
+  padding: 0 0.35rem;
+  background: none;
+  border: none;
+  color: var(--text);
+}
+
+.tool:active {
+  background: var(--code-bg);
+}
+
+.tool-mono {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+.tool-text {
+  font-family: var(--font-heading);
+  font-size: 1.05rem;
+}
+
+.toolbar-done {
+  border-left: 1px solid var(--border);
+  color: var(--muted);
 }
 
 /* ---------- status bar ---------- */
@@ -308,8 +607,8 @@ button:focus-visible {
   gap: 0.5rem;
   border-top: 1px solid var(--border);
   background: var(--sidebar-bg);
-  padding: 0.35rem 0.6rem;
-  padding-bottom: calc(0.35rem + env(safe-area-inset-bottom));
+  padding: 0.25rem calc(0.6rem + var(--sar)) 0.25rem calc(0.6rem + var(--sal));
+  padding-bottom: calc(0.25rem + var(--sab));
   font-size: 0.78rem;
   color: var(--muted);
 }
@@ -318,31 +617,15 @@ button:focus-visible {
   flex: 1;
 }
 
-.ghost {
-  background: none;
-  border: none;
-  border-radius: 6px;
-  padding: 0.25em 0.5em;
-  color: var(--muted);
-}
-
-.ghost:hover {
-  background: var(--bg-raised);
-  color: var(--text);
-}
-
-.ghost.danger:hover {
-  color: var(--danger);
-}
-
 .status-sync {
   display: inline-flex;
   align-items: center;
   gap: 0.4em;
+  min-height: 34px;
   background: none;
   border: none;
   color: inherit;
-  padding: 0.25em 0.4em;
+  padding: 0.25em 0.5em;
   border-radius: 6px;
 }
 
@@ -381,12 +664,19 @@ button:focus-visible {
   }
 }
 
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* ---------- notices and banners ---------- */
 
 .notices {
   position: fixed;
-  right: 0.8rem;
-  bottom: 3rem;
+  right: calc(0.8rem + var(--sar));
+  /* Clear of the status bar, which is the last row of the layout. */
+  bottom: calc(3rem + var(--sab));
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
@@ -401,10 +691,15 @@ button:focus-visible {
   background: var(--bg-raised);
   border: 1px solid var(--border-strong);
   border-left: 3px solid var(--accent);
-  border-radius: 10px;
+  border-radius: var(--radius);
   padding: 0.6rem 0.7rem;
   font-size: 0.85rem;
   box-shadow: 0 6px 20px rgb(0 0 0 / 0.14);
+}
+
+.notice .ghost {
+  min-height: var(--tap);
+  min-width: var(--tap);
 }
 
 .notice.error {
@@ -412,7 +707,7 @@ button:focus-visible {
 }
 
 .banner {
-  grid-column: 1 / -1;
+  grid-area: banner;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -420,6 +715,7 @@ button:focus-visible {
   background: var(--accent);
   color: #fff;
   padding: 0.5rem 0.8rem;
+  padding-top: calc(0.5rem + var(--sat));
   font-size: 0.85rem;
 }
 
@@ -433,60 +729,267 @@ button:focus-visible {
   background: rgb(255 255 255 / 0.15);
   border-color: rgb(255 255 255 / 0.4);
   color: #fff;
+  min-height: var(--tap);
 }
 
 .banner button {
+  min-height: var(--tap);
   background: #fff;
   color: var(--accent);
   border: none;
-  border-radius: 8px;
-  padding: 0.4em 0.8em;
+  border-radius: var(--radius);
+  padding: 0.4em 0.9em;
   font-weight: 600;
 }
 
-.scrim {
-  display: none;
+/* ---------- sheets ---------- */
+
+.sheet-layer {
+  position: fixed;
+  inset: 0;
+  height: var(--viewport-height, 100%);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
 }
 
-.only-narrow {
-  display: none;
+.sheet-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 0.4);
+  animation: fade 0.16s ease-out;
 }
 
-/* ---------- phone ---------- */
+.sheet {
+  position: relative;
+  max-height: 88%;
+  overflow-y: auto;
+  background: var(--bg-raised);
+  border-top: 1px solid var(--border);
+  border-radius: 18px 18px 0 0;
+  padding: 0.4rem 1rem calc(1rem + var(--sab));
+  padding-left: calc(1rem + var(--sal));
+  padding-right: calc(1rem + var(--sar));
+  animation: rise var(--slide);
+}
+
+.sheet-grip {
+  width: 2.4rem;
+  height: 0.25rem;
+  margin: 0.25rem auto 0.2rem;
+  border-radius: 999px;
+  background: var(--border-strong);
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sheet-head h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0.2rem 0;
+  font-family: var(--font-heading);
+  font-size: 1.15rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding: 0.4rem 0 0;
+}
+
+.sheet-body p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.field input {
+  width: 100%;
+  min-height: var(--tap);
+}
+
+.sheet-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.sheet-actions .button {
+  flex: 1;
+}
+
+.sheet-body.menu {
+  gap: 0.15rem;
+  padding-bottom: 0.2rem;
+}
+
+.menu-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  width: 100%;
+  min-height: 52px;
+  padding: 0.5rem 0.6rem;
+  border: none;
+  border-radius: var(--radius);
+  background: none;
+  text-align: left;
+  font-size: 1rem;
+}
+
+.menu-item:hover,
+.menu-item:active {
+  background: var(--code-bg);
+}
+
+.menu-item.danger {
+  color: var(--danger);
+}
+
+.menu-hint {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* With room to spare a sheet is just a dialog: centred, and no grip to grab. */
+@media (min-width: 46.01rem) {
+  .sheet-layer {
+    justify-content: center;
+    align-items: center;
+  }
+
+  .sheet {
+    width: min(26rem, calc(100% - 2rem));
+    max-height: calc(100% - 4rem);
+    border: 1px solid var(--border-strong);
+    border-radius: 14px;
+    padding-bottom: 1rem;
+    box-shadow: 0 18px 50px rgb(0 0 0 / 0.3);
+    animation: pop 0.14s ease-out;
+  }
+
+  .sheet-grip {
+    display: none;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+@keyframes rise {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+/* ---------- phone: one screen at a time ---------- */
+
+.app.phone {
+  grid-template-columns: 100%;
+  grid-template-areas: 'banner' 'main' 'status';
+}
+
+.app.phone .sidebar,
+.app.phone .pane {
+  grid-area: main;
+  transition: transform var(--slide);
+}
+
+.app.phone .sidebar {
+  border-right: none;
+}
+
+.app.phone .pane {
+  z-index: 2;
+  transform: translateX(100%);
+  box-shadow: -10px 0 30px rgb(0 0 0 / 0.18);
+}
+
+.app.phone.screen-note .pane {
+  transform: none;
+}
+
+/* The list slides a little the other way, so the two screens read as a stack
+   rather than as one card passing over a still one. */
+.app.phone.screen-note .sidebar {
+  transform: translateX(-18%);
+}
+
+.app.phone .note-chevron {
+  display: inline-flex;
+}
+
+.app.phone .note-row {
+  min-height: 52px;
+  padding: 0.6rem 0.7rem;
+}
+
+.app.phone .note-title {
+  font-size: 1rem;
+}
+
+.app.phone .note-snippet {
+  font-size: 0.82rem;
+}
+
+.app.phone .folder {
+  font-size: 0.72rem;
+}
+
+.app.phone .status {
+  font-size: 0.8rem;
+}
+
+/* With the keyboard up, the toolbar is the bottom of the screen and the sync
+   light would only be stealing rows from the note. */
+html[data-keyboard='open'] .app.phone .status {
+  display: none;
+}
 
 @media (max-width: 46rem) {
-  .app {
-    grid-template-columns: 1fr;
-    grid-template-areas: 'pane' 'status';
-  }
-
-  .sidebar {
-    position: fixed;
-    inset: 0 auto 0 0;
-    width: min(20rem, 84vw);
-    z-index: 30;
-    transform: translateX(-100%);
-    transition: transform 0.18s ease-out;
-  }
-
-  .app.sidebar-open .sidebar {
-    transform: none;
-    box-shadow: 0 0 40px rgb(0 0 0 / 0.3);
-  }
-
-  .app.sidebar-open .scrim {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background: rgb(0 0 0 / 0.35);
-    z-index: 25;
-  }
-
-  .only-narrow {
-    display: inline-flex;
-  }
-
   :root {
     --editor-font-size: 17px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app.phone .sidebar,
+  .app.phone .pane,
+  .row-action,
+  .note-list {
+    transition: none;
+  }
+
+  .sheet,
+  .sheet-scrim {
+    animation: none;
   }
 }

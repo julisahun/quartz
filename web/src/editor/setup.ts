@@ -1,7 +1,8 @@
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { insertNewlineContinueMarkup, markdown, markdownLanguage } from '@codemirror/lang-markdown'
-import { EditorSelection, EditorState, type Extension } from '@codemirror/state'
+import { EditorState, type Extension } from '@codemirror/state'
 import { EditorView, keymap, placeholder } from '@codemirror/view'
+import { insertAttachments, toggleWrap } from './commands'
 import { livePreview, type LivePreviewConfig } from './live-preview'
 import { keyboardAware } from './mobile'
 import { editorTheme, highlighting } from './theme'
@@ -21,8 +22,8 @@ export function editorExtensions(config: EditorConfig): Extension[] {
     history(),
     keymap.of([
       { key: 'Mod-s', run: () => (config.onSave(), true), preventDefault: true },
-      { key: 'Mod-b', run: (view) => wrapSelection(view, '**') },
-      { key: 'Mod-i', run: (view) => wrapSelection(view, '*') },
+      { key: 'Mod-b', run: (view) => toggleWrap(view, '**') },
+      { key: 'Mod-i', run: (view) => toggleWrap(view, '*') },
       { key: 'Enter', run: insertNewlineContinueMarkup },
       ...defaultKeymap,
       ...historyKeymap,
@@ -51,66 +52,24 @@ export function editorExtensions(config: EditorConfig): Extension[] {
   ]
 }
 
-/** Wraps the selection in a marker, or unwraps it when it is already wrapped. */
-function wrapSelection(view: EditorView, marker: string): boolean {
-  const { state } = view
-  const len = marker.length
-  view.dispatch(
-    state.changeByRange((range) => {
-      const before = state.sliceDoc(Math.max(0, range.from - len), range.from)
-      const after = state.sliceDoc(range.to, Math.min(state.doc.length, range.to + len))
-      if (before === marker && after === marker) {
-        return {
-          changes: [
-            { from: range.from - len, to: range.from },
-            { from: range.to, to: range.to + len },
-          ],
-          range: EditorSelection.range(range.from - len, range.to - len),
-        }
-      }
-      return {
-        changes: [
-          { from: range.from, insert: marker },
-          { from: range.to, insert: marker },
-        ],
-        range: EditorSelection.range(range.from + len, range.to + len),
-      }
-    }),
-    { scrollIntoView: true },
-  )
-  return true
-}
-
 /**
- * Pasting or dropping an image stores it in the vault and leaves an embed
- * behind, the way Obsidian does — the file syncs like any other.
+ * Pasting or dropping a file stores it in the vault and leaves an embed
+ * behind. The toolbar's picker goes through the same path.
  */
 function attachmentHandlers(config: EditorConfig): Extension {
-  const insert = async (view: EditorView, files: FileList | File[]) => {
-    for (const file of Array.from(files)) {
-      const path = await config.onAttach(file)
-      const embed = file.type.startsWith('image/') ? `![[${path}]]` : `[[${path}]]`
-      const pos = view.state.selection.main.head
-      view.dispatch({
-        changes: { from: pos, insert: `${embed}\n` },
-        selection: { anchor: pos + embed.length + 1 },
-      })
-    }
-  }
-
   return EditorView.domEventHandlers({
     paste(event, view) {
       const files = event.clipboardData?.files
       if (!files?.length) return false
       event.preventDefault()
-      void insert(view, files)
+      void insertAttachments(view, Array.from(files), config.onAttach)
       return true
     },
     drop(event, view) {
       const files = event.dataTransfer?.files
       if (!files?.length) return false
       event.preventDefault()
-      void insert(view, files)
+      void insertAttachments(view, Array.from(files), config.onAttach)
       return true
     },
   })

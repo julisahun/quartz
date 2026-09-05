@@ -67,15 +67,19 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
-          # Without this the ephemeral node joins with MagicDNS off, and the
-          # Pi's name does not resolve — "Could not resolve hostname sigint".
-          args: --accept-dns=true
 
       - name: Check the tailnet path to the Pi
         run: |
-          tailscale status || true
+          # Two different failures look identical from the rsync step, which
+          # just dies with "Could not resolve hostname". Tell them apart here.
+          if ! tailscale status >/dev/null 2>&1; then
+            echo "::error::the runner never joined the tailnet — check TS_OAUTH_CLIENT_ID and TS_OAUTH_SECRET (a bad value fails with 401 API token invalid when minting the auth key)"
+            tailscale status || true
+            exit 1
+          fi
           if ! tailscale ip -4 "$PI_HOST" >/dev/null 2>&1; then
-            echo "::error::$PI_HOST is not visible on the tailnet — check the machine is up and tagged tag:server"
+            echo "::error::joined the tailnet but $PI_HOST is not visible — check the machine is up, tagged tag:server, and that the ACL allows tag:ci to reach it"
+            tailscale status || true
             exit 1
           fi
           echo "$PI_HOST is $(tailscale ip -4 "$PI_HOST")"

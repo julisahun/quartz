@@ -1,4 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Dialogs } from './ui/dialogs'
+import { useSwipeBack } from './ui/gestures'
+import { useIsPhone } from './ui/media'
 import { Notices } from './ui/Notices'
 import { NoteEditor } from './ui/NoteEditor'
 import { Sidebar } from './ui/Sidebar'
@@ -13,9 +16,15 @@ export function App() {
   const boot = useApp((s) => s.boot)
   const currentPath = useApp((s) => s.currentPath)
   const sync = useApp((s) => s.sync)
+  const isPhone = useIsPhone()
 
   const [livePreview, setLivePreview] = useState(() => localStorage.getItem('livePreview') !== 'off')
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const { screen, showNote, back } = useScreens(isPhone)
+  // The node, not a ref: the pane only exists once boot leaves the splash, and
+  // an effect keyed on a ref object would never see it arrive.
+  const [pane, setPane] = useState<HTMLElement | null>(null)
+
+  useSwipeBack(pane, { enabled: isPhone && screen === 'note', onBack: back })
 
   useEffect(() => {
     void boot()
@@ -35,29 +44,88 @@ export function App() {
     document.title = currentPath ? `${noteTitle(currentPath)} — quartz` : 'quartz'
   }, [currentPath])
 
+  // A note can go away underneath the screen showing it — deleted here, or
+  // pulled as a delete from another device.
+  useEffect(() => {
+    if (screen === 'note' && !currentPath) back()
+  }, [screen, currentPath, back])
+
   if (phase === 'loading') {
     return <div className="splash">…</div>
   }
   if (phase === 'login') {
-    return <LoginScreen />
+    return (
+      <>
+        <LoginScreen />
+        <Dialogs />
+      </>
+    )
   }
 
   return (
-    <div className={`app ${sidebarOpen ? 'sidebar-open' : ''}`}>
+    <div className={`app ${isPhone ? `phone screen-${screen}` : 'wide'}`}>
       {sync === 'needs-login' && <SignedOutBanner />}
-      <Sidebar onNavigate={() => setSidebarOpen(false)} />
-      <main className="pane">
-        <NoteEditor livePreview={livePreview} />
+      <Sidebar onNavigate={showNote} inert={isPhone && screen === 'note'} />
+      <main className="pane" ref={setPane} inert={isPhone && screen === 'list'}>
+        <NoteEditor
+          livePreview={livePreview}
+          onToggleLivePreview={() => setLivePreview((v) => !v)}
+          onBack={back}
+        />
       </main>
       <Notices />
-      <StatusBar
-        livePreview={livePreview}
-        onToggleLivePreview={() => setLivePreview((v) => !v)}
-        onToggleSidebar={() => setSidebarOpen((v) => !v)}
-      />
-      {sidebarOpen && <div className="scrim" onClick={() => setSidebarOpen(false)} />}
+      <StatusBar livePreview={livePreview} onToggleLivePreview={() => setLivePreview((v) => !v)} />
+      <Dialogs />
     </div>
   )
+}
+
+type Screen = 'list' | 'note'
+
+/**
+ * One screen at a time on a phone, with the back gesture and the browser's own
+ * back button both meaning the same thing. The note screen is a history entry,
+ * so a swipe from the edge of a standalone PWA does what it does everywhere
+ * else on the device.
+ */
+function useScreens(enabled: boolean) {
+  const [screen, setScreen] = useState<Screen>('list')
+  const pushed = useRef(false)
+
+  useEffect(() => {
+    const onPop = () => {
+      pushed.current = false
+      setScreen('list')
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+
+  const showNote = useCallback(() => {
+    if (!enabled) return
+    if (!pushed.current) {
+      pushed.current = true
+      history.pushState({ quartz: 'note' }, '')
+    }
+    setScreen('note')
+  }, [enabled])
+
+  const back = useCallback(() => {
+    if (pushed.current) {
+      // popstate does the rest, so there is one path out of the note screen.
+      history.back()
+      return
+    }
+    setScreen('list')
+  }, [])
+
+  // Growing past the phone breakpoint shows both panes at once; the pushed
+  // entry is harmless, and stays until it is popped.
+  useEffect(() => {
+    if (!enabled) setScreen('list')
+  }, [enabled])
+
+  return { screen, showNote, back }
 }
 
 /**
