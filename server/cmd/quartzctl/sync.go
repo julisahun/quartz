@@ -9,8 +9,8 @@ import (
 	"sort"
 	"time"
 
-	"quarts/internal/index"
-	"quarts/internal/vault"
+	"quartz/internal/index"
+	"quartz/internal/vault"
 )
 
 type syncer struct {
@@ -84,6 +84,7 @@ func (s *syncer) bootstrap(stats *syncStats) error {
 		}
 	}
 	s.st.Cursor = snap.Head
+	s.st.Epoch = snap.Epoch
 	s.st.Bootstrapped = true
 	return nil
 }
@@ -96,6 +97,14 @@ func (s *syncer) pull(stats *syncStats) error {
 		if err != nil {
 			return err
 		}
+		if page.Epoch != "" && s.st.Epoch != "" && page.Epoch != s.st.Epoch {
+			// The server rebuilt its index from the vault. Our cursor points
+			// into a journal that no longer exists, so start from the manifest.
+			fmt.Fprintln(os.Stderr, "the server rebuilt its index; reconciling from the manifest")
+			s.st.Cursor = 0
+			return s.bootstrap(stats)
+		}
+		s.st.Epoch = page.Epoch
 		for _, ch := range page.Changes {
 			if err := s.applyChange(ch, stats); err != nil {
 				return err

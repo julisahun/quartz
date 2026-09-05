@@ -1,4 +1,4 @@
-// Command quarts is the notes server: it owns a vault of plain markdown files,
+// Command quartz is the notes server: it owns a vault of plain markdown files,
 // journals every change (whoever made it), and serves the sync API and the PWA.
 package main
 
@@ -12,12 +12,12 @@ import (
 	"syscall"
 	"time"
 
-	"quarts/internal/config"
-	"quarts/internal/gitstore"
-	"quarts/internal/httpapi"
-	"quarts/internal/index"
-	"quarts/internal/service"
-	"quarts/internal/vault"
+	"quartz/internal/config"
+	"quartz/internal/gitstore"
+	"quartz/internal/httpapi"
+	"quartz/internal/index"
+	"quartz/internal/service"
+	"quartz/internal/vault"
 )
 
 func main() {
@@ -81,7 +81,7 @@ func run(log *slog.Logger) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Info("quarts listening", "addr", cfg.Addr, "vault", v.Root(), "git", cfg.GitEnabled)
+		log.Info("quartz listening", "addr", cfg.Addr, "vault", v.Root(), "git", cfg.GitEnabled)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}

@@ -16,7 +16,7 @@ func (a *API) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "server_error", "could not read the cursor")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"head": head, "files": files})
+	writeJSON(w, http.StatusOK, map[string]any{"head": head, "epoch": a.idx.Epoch(), "files": files})
 }
 
 func (a *API) handleChanges(w http.ResponseWriter, r *http.Request) {
@@ -30,5 +30,10 @@ func (a *API) handleChanges(w http.ResponseWriter, r *http.Request) {
 	// more=true means the client should call again before considering itself
 	// caught up: the page stopped short of head.
 	more := len(changes) > 0 && changes[len(changes)-1].Seq < head
-	writeJSON(w, http.StatusOK, map[string]any{"head": head, "changes": changes, "more": more})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"head":    head,
+		"epoch":   a.idx.Epoch(),
+		"changes": changes,
+		"more":    more,
+	})
 }

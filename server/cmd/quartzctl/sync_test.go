@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"quarts/internal/auth"
-	"quarts/internal/config"
-	"quarts/internal/gitstore"
-	"quarts/internal/httpapi"
-	"quarts/internal/index"
-	"quarts/internal/service"
-	"quarts/internal/vault"
+	"quartz/internal/auth"
+	"quartz/internal/config"
+	"quartz/internal/gitstore"
+	"quartz/internal/httpapi"
+	"quartz/internal/index"
+	"quartz/internal/service"
+	"quartz/internal/vault"
 )
 
 const password = "hunter2-hunter2"

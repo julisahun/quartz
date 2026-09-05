@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"quarts/internal/index"
-	"quarts/internal/vault"
+	"quartz/internal/index"
+	"quartz/internal/vault"
 )
 
 type client struct {
@@ -52,9 +52,9 @@ func (c *client) do(method, path string, body io.Reader, headers map[string]stri
 		return nil, err
 	}
 	if c.cookie != "" {
-		req.Header.Set("Cookie", "quarts_session="+c.cookie)
+		req.Header.Set("Cookie", "quartz_session="+c.cookie)
 	}
-	req.Header.Set("X-Quarts-Device", c.device)
+	req.Header.Set("X-Quartz-Device", c.device)
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
@@ -89,7 +89,7 @@ func (c *client) login(user, password string) (string, error) {
 	defer resp.Body.Close()
 	io.Copy(io.Discard, resp.Body)
 	for _, ck := range resp.Cookies() {
-		if ck.Name == "quarts_session" {
+		if ck.Name == "quartz_session" {
 			return ck.Value, nil
 		}
 	}
@@ -98,6 +98,7 @@ func (c *client) login(user, password string) (string, error) {
 
 type snapshot struct {
 	Head  int64            `json:"head"`
+	Epoch string           `json:"epoch"`
 	Files []vault.FileMeta `json:"files"`
 }
 
@@ -113,6 +114,7 @@ func (c *client) snapshot() (snapshot, error) {
 
 type changePage struct {
 	Head    int64          `json:"head"`
+	Epoch   string         `json:"epoch"`
 	Changes []index.Change `json:"changes"`
 	More    bool           `json:"more"`
 }

@@ -1,12 +1,12 @@
-// Command quartsctl syncs a local folder against a quarts server.
+// Command quartzctl syncs a local folder against a quartz server.
 //
 // It is the milestone-1 client: enough to prove the sync algorithm end to end
 // with no UI written, and useful afterwards as a headless mirror.
 //
-//	quartsctl login  -server https://notes.sigint-pm.uk -user juli -dir ./vault
-//	quartsctl sync   -dir ./vault
-//	quartsctl watch  -dir ./vault -interval 15s
-//	quartsctl status -dir ./vault
+//	quartzctl login  -server https://notes.sigint-pm.uk -user juli -dir ./vault
+//	quartzctl sync   -dir ./vault
+//	quartzctl watch  -dir ./vault -interval 15s
+//	quartzctl status -dir ./vault
 package main
 
 import (
@@ -51,7 +51,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, `quartsctl — sync a folder with a quarts server
+	fmt.Fprintln(os.Stderr, `quartzctl — sync a folder with a quartz server
 
   login   -server URL -user NAME [-device NAME] [-dir DIR]
   sync    [-dir DIR]
@@ -116,7 +116,7 @@ func openSyncer(dir string) (*syncer, error) {
 		return nil, err
 	}
 	if st.Server == "" || st.Cookie == "" {
-		return nil, fmt.Errorf("no session in %s — run `quartsctl login` first", dir)
+		return nil, fmt.Errorf("no session in %s — run `quartzctl login` first", dir)
 	}
 	v, err := localVault(dir)
 	if err != nil {

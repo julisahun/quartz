@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"quarts/internal/gitstore"
-	"quarts/internal/index"
-	"quarts/internal/vault"
+	"quartz/internal/gitstore"
+	"quartz/internal/index"
+	"quartz/internal/vault"
 )
 
 func newTestService(t *testing.T) *Service {
@@ -29,7 +29,7 @@ func newTestService(t *testing.T) *Service {
 	t.Cleanup(func() { idx.Close() })
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	if os.Getenv("QUARTS_TEST_LOG") != "" {
+	if os.Getenv("QUARTZ_TEST_LOG") != "" {
 		log = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	}
 	git, err := gitstore.New(v.Root(), 100*time.Millisecond, log)
@@ -130,7 +130,7 @@ func TestVaultChangesAreCommitted(t *testing.T) {
 	if err != nil || len(entries) == 0 {
 		t.Fatalf("git log = %v, %v", entries, err)
 	}
-	if !strings.Contains(entries[0], "quarts:") {
+	if !strings.Contains(entries[0], "quartz:") {
 		t.Errorf("unexpected commit subject: %q", entries[0])
 	}
 

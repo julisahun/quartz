@@ -30,7 +30,7 @@ func TestIgnored(t *testing.T) {
 	ignored := []string{
 		".git/config", "notes/.git/x", ".obsidian/workspace.json",
 		".obsidian/workspace-mobile.json", ".DS_Store", "notes/.DS_Store",
-		".quarts-tmp-123", ".quarts-sync.json", ".trash/old.md",
+		".quartz-tmp-123", ".quartz-sync.json", ".trash/old.md",
 	}
 	for _, p := range ignored {
 		if !Ignored(p) {

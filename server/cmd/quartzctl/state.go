@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-const stateFile = ".quarts-sync.json"
+const stateFile = ".quartz-sync.json"
 
 // state is the client's view of the server: the cursor into the change journal
 // and, per file, the hash the server last confirmed (baseHash). Anything on
@@ -18,6 +18,10 @@ type state struct {
 	Cookie string                `json:"cookie"`
 	Cursor int64                 `json:"cursor"`
 	Files  map[string]fileRecord `json:"files"`
+
+	// Epoch identifies the server's index. When it changes the index was
+	// rebuilt, sequence numbers restarted, and our cursor is meaningless.
+	Epoch string `json:"epoch"`
 
 	// Bootstrapped records that the full manifest has been reconciled once.
 	// The cursor cannot stand in for this: syncing against an empty server

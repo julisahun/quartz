@@ -11,7 +11,7 @@ desktop/src-tauri/target/
 .env
 .env.local
 vault-dev/
-.quarts-sync.json
+.quartz-sync.json
 
 # os
 .DS_Store

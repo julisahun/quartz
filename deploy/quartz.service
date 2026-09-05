@@ -1,6 +1,6 @@
 [Unit]
-Description=quarts notes server
-Documentation=https://github.com/julisahun/quarts
+Description=quartz notes server
+Documentation=https://github.com/julisahun/quartz
 After=network-online.target
 Wants=network-online.target
 
@@ -8,9 +8,9 @@ Wants=network-online.target
 Type=simple
 User=sigint
 Group=sigint
-WorkingDirectory=/opt/quarts
-EnvironmentFile=/opt/quarts/.env
-ExecStart=/opt/quarts/quarts
+WorkingDirectory=/opt/quartz
+EnvironmentFile=/opt/quartz/.env
+ExecStart=/opt/quartz/quartz
 Restart=on-failure
 RestartSec=3
 
@@ -22,7 +22,7 @@ ProtectHome=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
-ReadWritePaths=/srv/quarts /opt/quarts
+ReadWritePaths=/srv/quartz /opt/quartz
 
 [Install]
 WantedBy=multi-user.target

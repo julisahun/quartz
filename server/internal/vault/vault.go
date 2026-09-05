@@ -176,7 +176,7 @@ func (v *Vault) Write(p string, data []byte) (FileMeta, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return FileMeta{}, err
 	}
-	tmp, err := os.CreateTemp(dir, ".quarts-tmp-*")
+	tmp, err := os.CreateTemp(dir, ".quartz-tmp-*")
 	if err != nil {
 		return FileMeta{}, err
 	}

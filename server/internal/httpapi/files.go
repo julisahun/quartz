@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"quarts/internal/vault"
+	"quartz/internal/vault"
 )
 
 func (a *API) handleGetFile(w http.ResponseWriter, r *http.Request) {
@@ -29,7 +29,7 @@ func (a *API) handleGetFile(w http.ResponseWriter, r *http.Request) {
 	h.Set("ETag", etag)
 	h.Set("Content-Type", contentType(meta.Path))
 	h.Set("Content-Length", strconv.Itoa(len(data)))
-	h.Set("X-Quarts-Mtime", strconv.FormatInt(meta.ModTime, 10))
+	h.Set("X-Quartz-Mtime", strconv.FormatInt(meta.ModTime, 10))
 	h.Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)

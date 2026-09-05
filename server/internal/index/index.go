@@ -7,7 +7,9 @@
 package index
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -17,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"quarts/internal/vault"
+	"quartz/internal/vault"
 
 	_ "modernc.org/sqlite"
 )
@@ -46,8 +48,9 @@ type SearchHit struct {
 }
 
 type Index struct {
-	db *sql.DB
-	mu sync.Mutex // serialises writers; SQLite allows only one anyway
+	db    *sql.DB
+	epoch string
+	mu    sync.Mutex // serialises writers; SQLite allows only one anyway
 }
 
 func Open(dbPath string) (*Index, error) {
@@ -66,8 +69,37 @@ func Open(dbPath string) (*Index, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Index{db: db}, nil
+	ix := &Index{db: db}
+	if err := ix.loadEpoch(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return ix, nil
 }
+
+// loadEpoch reads (or mints) the journal epoch: an id for this particular
+// database. Rebuilding the index restarts the sequence numbers, which would
+// silently make every client's cursor point at the wrong place — so clients
+// compare epochs and fall back to the manifest when it changes.
+func (ix *Index) loadEpoch() error {
+	err := ix.db.QueryRow(`SELECT value FROM meta WHERE key = 'epoch'`).Scan(&ix.epoch)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	buf := make([]byte, 8)
+	if _, err := rand.Read(buf); err != nil {
+		return err
+	}
+	ix.epoch = hex.EncodeToString(buf)
+	_, err = ix.db.Exec(`INSERT INTO meta (key, value) VALUES ('epoch', ?)`, ix.epoch)
+	return err
+}
+
+// Epoch identifies this index. A client seeing a new one re-reads the manifest.
+func (ix *Index) Epoch() string { return ix.epoch }
 
 func (ix *Index) Close() error { return ix.db.Close() }
 

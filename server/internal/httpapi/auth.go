@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"time"
 
-	"quarts/internal/auth"
+	"quartz/internal/auth"
 )
 
-const cookieName = "quarts_session"
+const cookieName = "quartz_session"
 
 type loginRequest struct {
 	User     string `json:"user"`

@@ -1,4 +1,4 @@
-name: Deploy quarts to the Pi
+name: Deploy quartz to the Pi
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ on:
       - .github/workflows/deploy.yml
 
 concurrency:
-  group: pi-quarts-deploy
+  group: pi-quartz-deploy
   cancel-in-progress: false
 
 jobs:
@@ -19,8 +19,8 @@ jobs:
     env:
       PI_HOST: sigint          # Tailscale MagicDNS name of the Pi
       PI_USER: sigint
-      PI_DIR: /opt/quarts
-      SERVICE: quarts
+      PI_DIR: /opt/quartz
+      SERVICE: quartz
 
     steps:
       - uses: actions/checkout@v5
@@ -54,9 +54,9 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           mkdir -p ../bin
-          go build -trimpath -o ../bin/quarts .
-          go build -trimpath -o ../bin/quarts-passwd ./cmd/quarts-passwd
-          go build -trimpath -o ../bin/quartsctl ./cmd/quartsctl
+          go build -trimpath -o ../bin/quartz .
+          go build -trimpath -o ../bin/quartz-passwd ./cmd/quartz-passwd
+          go build -trimpath -o ../bin/quartzctl ./cmd/quartzctl
 
       - name: Connect to tailnet
         uses: tailscale/github-action@v3
@@ -69,7 +69,7 @@ jobs:
         run: |
           rsync -az --chmod=F0755 \
             -e "ssh -o StrictHostKeyChecking=accept-new" \
-            bin/quarts bin/quarts-passwd bin/quartsctl \
+            bin/quartz bin/quartz-passwd bin/quartzctl \
             "$PI_USER@$PI_HOST:$PI_DIR/"
 
       - name: Ship the PWA
@@ -81,10 +81,10 @@ jobs:
       - name: Restart and smoke test
         run: |
           ssh -o StrictHostKeyChecking=accept-new "$PI_USER@$PI_HOST" \
-            'sudo systemctl restart quarts && \
+            'sudo systemctl restart quartz && \
              for i in $(seq 1 15); do \
                curl -sf http://127.0.0.1:8086/healthz >/dev/null && { echo ok; exit 0; }; \
                sleep 1; \
              done; \
-             echo "quarts did not come up" >&2; \
-             sudo journalctl -u quarts -n 40 --no-pager >&2; exit 1'
+             echo "quartz did not come up" >&2; \
+             sudo journalctl -u quartz -n 40 --no-pager >&2; exit 1'

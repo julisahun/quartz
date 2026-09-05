@@ -1,7 +1,7 @@
-// Command quarts-passwd prints an argon2id hash for QUARTS_PASSWORD_HASH.
+// Command quartz-passwd prints an argon2id hash for QUARTZ_PASSWORD_HASH.
 //
-//	quarts-passwd            # prompts, hidden input
-//	echo -n hunter2 | quarts-passwd -stdin
+//	quartz-passwd            # prompts, hidden input
+//	echo -n hunter2 | quartz-passwd -stdin
 package main
 
 import (
@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	"quarts/internal/auth"
+	"quartz/internal/auth"
 
 	"golang.org/x/term"
 )

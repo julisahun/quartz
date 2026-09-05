@@ -13,12 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"quarts/internal/auth"
-	"quarts/internal/config"
-	"quarts/internal/gitstore"
-	"quarts/internal/index"
-	"quarts/internal/service"
-	"quarts/internal/vault"
+	"quartz/internal/auth"
+	"quartz/internal/config"
+	"quartz/internal/gitstore"
+	"quartz/internal/index"
+	"quartz/internal/service"
+	"quartz/internal/vault"
 )
 
 const testPassword = "hunter2-hunter2"

@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"quarts/internal/vault"
+	"quartz/internal/vault"
 )
 
 func openTestIndex(t *testing.T) *Index {
@@ -142,6 +142,43 @@ func TestReconcileCatchesOfflineChanges(t *testing.T) {
 	}
 	if hits, _ := ix.Search("fresh", 0); len(hits) != 1 {
 		t.Errorf("new file was not indexed for search")
+	}
+}
+
+func TestEpochIsStableButNewPerDatabase(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "index.sqlite")
+
+	first, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	epoch := first.Epoch()
+	if epoch == "" {
+		t.Fatal("no epoch was minted")
+	}
+	first.Close()
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.Epoch() != epoch {
+		t.Errorf("epoch changed on reopen: %q then %q", epoch, reopened.Epoch())
+	}
+	reopened.Close()
+
+	// A rebuilt index is a different journal, and must say so.
+	if err := removeAll(path); err != nil {
+		t.Fatal(err)
+	}
+	rebuilt, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rebuilt.Close()
+	if rebuilt.Epoch() == epoch {
+		t.Error("a rebuilt index kept the old epoch, so clients cannot notice")
 	}
 }
 

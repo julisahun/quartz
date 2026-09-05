@@ -17,14 +17,14 @@ import (
 	"time"
 )
 
-const vaultGitignore = `# Managed by quarts: per-device churn that must not be versioned.
+const vaultGitignore = `# Managed by quartz: per-device churn that must not be versioned.
 .obsidian/workspace.json
 .obsidian/workspace-mobile.json
 .obsidian/cache
 .trash/
 .DS_Store
 Thumbs.db
-.quarts-tmp-*
+.quartz-tmp-*
 `
 
 type Store struct {
@@ -48,7 +48,7 @@ func New(dir string, debounce time.Duration, log *slog.Logger) (*Store, error) {
 }
 
 // NewDisabled returns a store that journals nothing. Used by tests and by
-// QUARTS_GIT=false, so the rest of the server needs no nil checks.
+// QUARTZ_GIT=false, so the rest of the server needs no nil checks.
 func NewDisabled(dir string, log *slog.Logger) (*Store, error) {
 	return &Store{dir: dir, log: log, disabled: true}, nil
 }
@@ -66,7 +66,7 @@ func (s *Store) ensureRepo() error {
 			return err
 		}
 	}
-	return s.commitNow("quarts: initial vault snapshot")
+	return s.commitNow("quartz: initial vault snapshot")
 }
 
 // Touch schedules a commit once the vault has been quiet for the debounce
@@ -97,7 +97,7 @@ func (s *Store) Flush() error {
 	}
 	s.pending = false
 	s.mu.Unlock()
-	return s.commitNow("quarts: sync " + time.Now().UTC().Format(time.RFC3339))
+	return s.commitNow("quartz: sync " + time.Now().UTC().Format(time.RFC3339))
 }
 
 func (s *Store) Close() error {
@@ -150,8 +150,8 @@ func (s *Store) run(args ...string) (string, error) {
 	defer cancel()
 	full := append([]string{
 		"-C", s.dir,
-		"-c", "user.name=quarts",
-		"-c", "user.email=quarts@sigint-pm.uk",
+		"-c", "user.name=quartz",
+		"-c", "user.email=quartz@sigint-pm.uk",
 		"-c", "commit.gpgsign=false",
 	}, args...)
 	cmd := exec.CommandContext(ctx, "git", full...)

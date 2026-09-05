@@ -1,4 +1,4 @@
-# quarts
+# quartz
 
 A self-hosted notes app over a plain folder of markdown files. Obsidian keeps
 working on the same vault, which is the point: it is the fallback while the
@@ -15,9 +15,9 @@ collaboration, CRDT merge, Dataview queries, themes, a native mobile app.
 laptop PWA ├─ same frontend ─┐
 Tauri app ─┘                 │  HTTPS (session cookie)
                              ▼
-              cloudflared @ Pi ──► 127.0.0.1:8086  quarts (Go, systemd)
+              cloudflared @ Pi ──► 127.0.0.1:8086  quartz (Go, systemd)
                                           │
-                                          ├─ /srv/quarts/vault   ← plain .md, a git repo
+                                          ├─ /srv/quartz/vault   ← plain .md, a git repo
                                           ├─ fsnotify watcher    ← catches Obsidian's writes
                                           └─ index.sqlite        ← change journal + search
                                           
@@ -37,8 +37,8 @@ server/           Go server and the CLI sync client
   internal/gitstore   debounced commits of the vault
   internal/service    the coordinator; the only thing that mutates the vault
   internal/httpapi    the API in "API" below
-  cmd/quartsctl       folder sync client (milestone 1's acceptance test)
-  cmd/quarts-passwd   argon2id hash generator for QUARTS_PASSWORD_HASH
+  cmd/quartzctl       folder sync client (milestone 1's acceptance test)
+  cmd/quartz-passwd   argon2id hash generator for QUARTZ_PASSWORD_HASH
 web/              the PWA (milestones 2–4, 6)
 desktop/          Tauri shell (milestone 5)
 deploy/           systemd unit, cloudflared snippet, Pi checklist
@@ -77,19 +77,19 @@ dropped and the file comes back.
 
 ```bash
 cd server
-export QUARTS_VAULT=$PWD/../vault-dev
-export QUARTS_INDEX=$PWD/../vault-dev-index.sqlite
-export QUARTS_PASSWORD_HASH="$(go run ./cmd/quarts-passwd -stdin <<< 'devpassword')"
-export QUARTS_SECURE_COOKIE=false      # plain http on localhost
-export QUARTS_DEV_ORIGIN=http://localhost:5173   # for `npm run dev`
+export QUARTZ_VAULT=$PWD/../vault-dev
+export QUARTZ_INDEX=$PWD/../vault-dev-index.sqlite
+export QUARTZ_PASSWORD_HASH="$(go run ./cmd/quartz-passwd -stdin <<< 'devpassword')"
+export QUARTZ_SECURE_COOKIE=false      # plain http on localhost
+export QUARTZ_DEV_ORIGIN=http://localhost:5173   # for `npm run dev`
 go run .
 ```
 
 Then sync a folder against it:
 
 ```bash
-go run ./cmd/quartsctl login -server http://127.0.0.1:8086 -user juli -dir /tmp/mirror
-go run ./cmd/quartsctl watch -dir /tmp/mirror
+go run ./cmd/quartzctl login -server http://127.0.0.1:8086 -user juli -dir /tmp/mirror
+go run ./cmd/quartzctl watch -dir /tmp/mirror
 ```
 
 Tests: `go test ./...` (add `-race` before pushing).
@@ -98,18 +98,18 @@ Tests: `go test ./...` (add `-race` before pushing).
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `QUARTS_ADDR` | `127.0.0.1:8086` | listen address |
-| `QUARTS_VAULT` | `/srv/quarts/vault` | the vault |
-| `QUARTS_INDEX` | `/srv/quarts/index.sqlite` | rebuildable index |
-| `QUARTS_WEB_DIR` | *(unset)* | serve the built PWA from here |
-| `QUARTS_USER` | `juli` | the only account |
-| `QUARTS_PASSWORD_HASH` | *(required)* | argon2id PHC string |
-| `QUARTS_SESSION_TTL_DAYS` | `90` | sliding session lifetime |
-| `QUARTS_SECURE_COOKIE` | `true` | set false for plain-http local dev |
-| `QUARTS_GIT` | `true` | commit vault changes |
-| `QUARTS_GIT_DEBOUNCE_SECONDS` | `30` | quiet period before committing |
-| `QUARTS_MAX_FILE_MB` | `64` | attachment size limit |
-| `QUARTS_DEV_ORIGIN` | *(unset)* | extra CORS origin for the Vite dev server |
+| `QUARTZ_ADDR` | `127.0.0.1:8086` | listen address |
+| `QUARTZ_VAULT` | `/srv/quartz/vault` | the vault |
+| `QUARTZ_INDEX` | `/srv/quartz/index.sqlite` | rebuildable index |
+| `QUARTZ_WEB_DIR` | *(unset)* | serve the built PWA from here |
+| `QUARTZ_USER` | `juli` | the only account |
+| `QUARTZ_PASSWORD_HASH` | *(required)* | argon2id PHC string |
+| `QUARTZ_SESSION_TTL_DAYS` | `90` | sliding session lifetime |
+| `QUARTZ_SECURE_COOKIE` | `true` | set false for plain-http local dev |
+| `QUARTZ_GIT` | `true` | commit vault changes |
+| `QUARTZ_GIT_DEBOUNCE_SECONDS` | `30` | quiet period before committing |
+| `QUARTZ_MAX_FILE_MB` | `64` | attachment size limit |
+| `QUARTZ_DEV_ORIGIN` | *(unset)* | extra CORS origin for the Vite dev server |
 
 Deployment lives in [`deploy/README.md`](deploy/README.md).
 Open questions and their answers are in [`DECISIONS.md`](DECISIONS.md).

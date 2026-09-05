@@ -68,7 +68,7 @@ func Ignored(p string) bool {
 		}
 		// Everything the client and server keep for themselves — temp files
 		// during an atomic write, the CLI's sync state — is reserved.
-		if strings.HasPrefix(seg, ".quarts") {
+		if strings.HasPrefix(seg, ".quartz") {
 			return true
 		}
 	}

@@ -17,7 +17,7 @@ type Config struct {
 	DevOrigin string // optional: extra CORS origin for `npm run dev`
 
 	User         string // single user (see DECISIONS.md)
-	PasswordHash string // argon2id PHC string, from quarts-passwd
+	PasswordHash string // argon2id PHC string, from quartz-passwd
 
 	SessionTTL   time.Duration
 	SecureCookie bool
@@ -30,28 +30,28 @@ type Config struct {
 
 func Load() (Config, error) {
 	c := Config{
-		Addr:         env("QUARTS_ADDR", "127.0.0.1:8086"),
-		VaultDir:     env("QUARTS_VAULT", "/srv/quarts/vault"),
-		IndexDB:      env("QUARTS_INDEX", "/srv/quarts/index.sqlite"),
-		WebDir:       env("QUARTS_WEB_DIR", ""),
-		DevOrigin:    env("QUARTS_DEV_ORIGIN", ""),
-		User:         env("QUARTS_USER", "juli"),
-		PasswordHash: os.Getenv("QUARTS_PASSWORD_HASH"),
-		SecureCookie: envBool("QUARTS_SECURE_COOKIE", true),
-		GitEnabled:   envBool("QUARTS_GIT", true),
-		MaxFileBytes: int64(envInt("QUARTS_MAX_FILE_MB", 64)) << 20,
+		Addr:         env("QUARTZ_ADDR", "127.0.0.1:8086"),
+		VaultDir:     env("QUARTZ_VAULT", "/srv/quartz/vault"),
+		IndexDB:      env("QUARTZ_INDEX", "/srv/quartz/index.sqlite"),
+		WebDir:       env("QUARTZ_WEB_DIR", ""),
+		DevOrigin:    env("QUARTZ_DEV_ORIGIN", ""),
+		User:         env("QUARTZ_USER", "juli"),
+		PasswordHash: os.Getenv("QUARTZ_PASSWORD_HASH"),
+		SecureCookie: envBool("QUARTZ_SECURE_COOKIE", true),
+		GitEnabled:   envBool("QUARTZ_GIT", true),
+		MaxFileBytes: int64(envInt("QUARTZ_MAX_FILE_MB", 64)) << 20,
 	}
 
 	// Long sliding TTL: an offline launch must never bounce you to a login
 	// you cannot reach (plan section 4.3).
-	ttlDays := envInt("QUARTS_SESSION_TTL_DAYS", 90)
+	ttlDays := envInt("QUARTZ_SESSION_TTL_DAYS", 90)
 	c.SessionTTL = time.Duration(ttlDays) * 24 * time.Hour
 
-	debounce := envInt("QUARTS_GIT_DEBOUNCE_SECONDS", 30)
+	debounce := envInt("QUARTZ_GIT_DEBOUNCE_SECONDS", 30)
 	c.GitDebounce = time.Duration(debounce) * time.Second
 
 	if c.PasswordHash == "" {
-		return c, fmt.Errorf("QUARTS_PASSWORD_HASH is not set (generate one with quarts-passwd)")
+		return c, fmt.Errorf("QUARTZ_PASSWORD_HASH is not set (generate one with quartz-passwd)")
 	}
 	return c, nil
 }

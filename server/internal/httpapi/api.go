@@ -7,13 +7,13 @@ import (
 	"net/http"
 	"time"
 
-	"quarts/internal/config"
-	"quarts/internal/index"
-	"quarts/internal/service"
+	"quartz/internal/config"
+	"quartz/internal/index"
+	"quartz/internal/service"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"quarts/internal/auth"
+	"quartz/internal/auth"
 )
 
 type API struct {
@@ -93,7 +93,7 @@ func (a *API) devCORS(next http.Handler) http.Handler {
 			h := w.Header()
 			h.Set("Access-Control-Allow-Origin", origin)
 			h.Set("Access-Control-Allow-Credentials", "true")
-			h.Set("Access-Control-Allow-Headers", "Content-Type, If-Match, If-None-Match, X-Quarts-Device")
+			h.Set("Access-Control-Allow-Headers", "Content-Type, If-Match, If-None-Match, X-Quartz-Device")
 			h.Set("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE, OPTIONS")
 			h.Set("Access-Control-Expose-Headers", "ETag")
 			h.Set("Vary", "Origin")

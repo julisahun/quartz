@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"quarts/internal/gitstore"
-	"quarts/internal/index"
-	"quarts/internal/vault"
-	"quarts/internal/watcher"
+	"quartz/internal/gitstore"
+	"quartz/internal/index"
+	"quartz/internal/vault"
+	"quartz/internal/watcher"
 )
 
 type Service struct {
