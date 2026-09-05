@@ -14,8 +14,11 @@ APP_DIR=/opt/quartz
 VAULT_DIR=/srv/quartz/vault
 STAGE_DIR=/home/sigint/quartz-stage
 SEED_DIR=/srv/webdav/juli/obsidian
-TUNNEL=03c079f3-c445-4882-8520-f1f1d78e8c70
-HOSTNAME_PUBLIC=notes.sigint-pm.uk
+# Read from the tunnel's own config rather than hardcoded, so this file holds
+# no identifiers of the machine it runs on.
+CLOUDFLARED_CONF=${CLOUDFLARED_CONF:-/etc/cloudflared/config.yml}
+TUNNEL=${QUARTZ_TUNNEL:-$(awk '/^tunnel:/ {print $2; exit}' "$CLOUDFLARED_CONF" 2>/dev/null)}
+HOSTNAME_PUBLIC=${QUARTZ_HOSTNAME:-notes.sigint-pm.uk}
 PORT=8086
 
 say() { printf '\n== %s\n' "$1"; }
@@ -92,7 +95,7 @@ chmod 0440 /etc/sudoers.d/quartz
 visudo -c -f /etc/sudoers.d/quartz
 
 say "cloudflared ingress"
-CONF=/etc/cloudflared/config.yml
+CONF=$CLOUDFLARED_CONF
 if grep -q "$HOSTNAME_PUBLIC" "$CONF"; then
   echo "ingress rule already present"
 else
@@ -117,7 +120,9 @@ else
 fi
 
 say "DNS route"
-if sudo -u "$APP_USER" HOME=/home/"$APP_USER" cloudflared tunnel route dns "$TUNNEL" "$HOSTNAME_PUBLIC" 2>&1; then
+if [[ -z $TUNNEL ]]; then
+  echo "no tunnel id found in $CLOUDFLARED_CONF; set QUARTZ_TUNNEL to route DNS"
+elif sudo -u "$APP_USER" HOME=/home/"$APP_USER" cloudflared tunnel route dns "$TUNNEL" "$HOSTNAME_PUBLIC" 2>&1; then
   echo "route created"
 else
   echo "route not created — if it already exists, that is fine"
