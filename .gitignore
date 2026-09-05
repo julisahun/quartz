@@ -15,3 +15,7 @@ vault-dev/
 
 # os
 .DS_Store
+
+# rust / tauri
+target/
+src-tauri/gen/

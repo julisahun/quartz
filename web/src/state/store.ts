@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { ApiError, HttpApi, OfflineError, type SearchHit } from '../api/client'
 import { SyncEngine, type SyncNotice } from '../sync/engine'
-import { IdbVaultStore } from '../vault/idb-store'
+import { createVaultStore } from '../vault'
+import { isDesktop } from '../vault/tauri-bridge'
 import { decodeText, encodeText, type FileMeta } from '../vault/types'
 import { deviceName } from './device'
 import { detectEviction, requestPersistence } from './storage'
@@ -19,8 +20,12 @@ const SAVE_DEBOUNCE_MS = 500
 const SYNC_AFTER_SAVE_MS = 1500
 const SYNC_INTERVAL_MS = 30_000
 
-const store = new IdbVaultStore()
-const api = new HttpApi()
+const store = createVaultStore()
+const desktop = isDesktop()
+// On the desktop the API base is absolute: the shell serves the app from its
+// own origin, so it has to be told where the Pi is.
+const apiBase = desktop ? (localStorage.getItem('serverUrl') ?? 'https://notes.sigint-pm.uk') : ''
+const api = new HttpApi(apiBase, undefined, (token) => void store.setFlag('token', token))
 
 let engine: SyncEngine | undefined
 let saveTimer: ReturnType<typeof setTimeout> | undefined
@@ -95,7 +100,8 @@ export const useApp = create<AppState>()((set, get) => {
 
     async boot() {
       const device = await deviceName(store)
-      void requestPersistence()
+      if (desktop) api.setToken(await store.flag('token'))
+      else void requestPersistence()
       engine = new SyncEngine(store, api, {
         device,
         onNotice: (n) => {
@@ -136,7 +142,7 @@ export const useApp = create<AppState>()((set, get) => {
     },
 
     async login(user, password) {
-      await api.login(user, password, get().device)
+      await api.login(user, password, get().device, desktop)
       await store.setFlag('user', user)
       set({ user, phase: 'ready', sync: 'idle' })
       await get().syncNow()

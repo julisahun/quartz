@@ -65,7 +65,7 @@ export interface ChangePage {
 }
 
 export interface Api {
-  login(user: string, password: string, device: string): Promise<void>
+  login(user: string, password: string, device: string, desktop?: boolean): Promise<void>
   logout(): Promise<void>
   session(): Promise<boolean>
   snapshot(): Promise<Snapshot>
@@ -78,12 +78,27 @@ export interface Api {
 }
 
 export class HttpApi implements Api {
-  constructor(private readonly base: string = '') {}
+  /**
+   * `token` is only used by the desktop shell: its webview is a different
+   * origin from the server, so a cookie would be a third-party cookie. In a
+   * browser this stays undefined and the HttpOnly cookie does the work.
+   */
+  constructor(
+    private readonly base: string = '',
+    private token?: string,
+    private readonly onToken?: (token: string) => void,
+  ) {}
+
+  setToken(token: string | undefined): void {
+    this.token = token
+  }
 
   private async request(path: string, init: RequestInit = {}): Promise<Response> {
     let resp: Response
+    const headers = new Headers(init.headers)
+    if (this.token) headers.set('Authorization', `Bearer ${this.token}`)
     try {
-      resp = await fetch(this.base + path, { credentials: 'include', ...init })
+      resp = await fetch(this.base + path, { credentials: 'include', ...init, headers })
     } catch (err) {
       // fetch only rejects for network-level failures, which is exactly the
       // offline case: the queue stays, we retry later.
@@ -105,16 +120,24 @@ export class HttpApi implements Api {
     return resp
   }
 
-  async login(user: string, password: string, device: string): Promise<void> {
-    await this.request('/auth/login', {
+  async login(user: string, password: string, device: string, desktop = false): Promise<void> {
+    const resp = await this.request('/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user, password, device }),
+      body: JSON.stringify({ user, password, device, client: desktop ? 'desktop' : 'web' }),
     })
+    if (!desktop) return
+    const body = await resp.json()
+    if (typeof body.token === 'string') {
+      this.token = body.token
+      this.onToken?.(body.token)
+    }
   }
 
   async logout(): Promise<void> {
     await this.request('/auth/logout', { method: 'POST' })
+    this.token = undefined
+    this.onToken?.('')
   }
 
   async session(): Promise<boolean> {

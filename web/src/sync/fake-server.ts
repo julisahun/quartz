@@ -100,7 +100,7 @@ export class FakeApi implements Api {
     if (!this.authed) throw new ApiError(401, 'session_expired', 'sign in again')
   }
 
-  async login(): Promise<void> {
+  async login(_user?: string, _password?: string, _device?: string, _desktop?: boolean): Promise<void> {
     if (!this.online) throw new OfflineError()
     this.authed = true
   }

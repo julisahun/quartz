@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"The app's own vault commands need no extra permissions; core defaults are enough.","local":true,"windows":["main"],"permissions":["core:default"]}}

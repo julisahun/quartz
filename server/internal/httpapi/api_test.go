@@ -153,6 +153,57 @@ func TestLoginAndSession(t *testing.T) {
 	}
 }
 
+func TestDesktopBearerToken(t *testing.T) {
+	// The desktop shell is a different origin from the server, so it carries
+	// the session in a header instead of a cookie.
+	h := newHarness(t)
+	body, _ := json.Marshal(map[string]string{
+		"user": "juli", "password": testPassword, "device": "mac", "client": "desktop",
+	})
+	resp, err := http.Post(h.srv.URL+"/auth/login", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if out.Token == "" {
+		t.Fatal("no token was returned to the desktop client")
+	}
+
+	// The token authenticates without any cookie.
+	req, _ := http.NewRequest(http.MethodGet, h.srv.URL+"/api/snapshot", nil)
+	req.Header.Set("Authorization", "Bearer "+out.Token)
+	authed, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer authed.Body.Close()
+	if authed.StatusCode != http.StatusOK {
+		t.Fatalf("bearer request = %d, want 200", authed.StatusCode)
+	}
+
+	// A browser login does not hand the token to page scripts.
+	h.login(testPassword)
+	plain, _ := json.Marshal(map[string]string{"user": "juli", "password": testPassword})
+	browserResp, err := http.Post(h.srv.URL+"/auth/login", "application/json", bytes.NewReader(plain))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer browserResp.Body.Close()
+	var browserBody map[string]any
+	if err := json.NewDecoder(browserResp.Body).Decode(&browserBody); err != nil {
+		t.Fatal(err)
+	}
+	if _, leaked := browserBody["token"]; leaked {
+		t.Error("the browser login response contains the session token")
+	}
+}
+
 func TestUnauthorizedBodyIsMachineReadable(t *testing.T) {
 	// A 401 mid-sync must be recognisable so the client can prompt for a
 	// re-login instead of discarding its queue (plan section 4.3).
