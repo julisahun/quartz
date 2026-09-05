@@ -30,7 +30,7 @@ jobs:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
 
-      - name: Run tests
+      - name: Test the server
         working-directory: server
         run: go test ./...
 
@@ -40,10 +40,12 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      - name: Build the PWA
+      - name: Test and build the PWA
         working-directory: web
         run: |
           npm ci
+          npm run typecheck
+          npm test
           npm run build
 
       - name: Cross-compile for the Pi (linux/arm64)
@@ -55,6 +57,7 @@ jobs:
         run: |
           mkdir -p ../bin
           go build -trimpath -o ../bin/quartz .
+          go build -trimpath -o ../bin/quartz-admin ./cmd/quartz-admin
           go build -trimpath -o ../bin/quartz-passwd ./cmd/quartz-passwd
           go build -trimpath -o ../bin/quartzctl ./cmd/quartzctl
 
@@ -69,7 +72,7 @@ jobs:
         run: |
           rsync -az --chmod=F0755 \
             -e "ssh -o StrictHostKeyChecking=accept-new" \
-            bin/quartz bin/quartz-passwd bin/quartzctl \
+            bin/quartz bin/quartz-admin bin/quartz-passwd bin/quartzctl \
             "$PI_USER@$PI_HOST:$PI_DIR/"
 
       - name: Ship the PWA
@@ -80,11 +83,23 @@ jobs:
 
       - name: Restart and smoke test
         run: |
-          ssh -o StrictHostKeyChecking=accept-new "$PI_USER@$PI_HOST" \
-            'sudo systemctl restart quartz && \
-             for i in $(seq 1 15); do \
-               curl -sf http://127.0.0.1:8086/healthz >/dev/null && { echo ok; exit 0; }; \
-               sleep 1; \
-             done; \
-             echo "quartz did not come up" >&2; \
-             sudo journalctl -u quartz -n 40 --no-pager >&2; exit 1'
+          ssh -o StrictHostKeyChecking=accept-new "$PI_USER@$PI_HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          sudo systemctl restart quartz
+          for i in $(seq 1 15); do
+            if curl -sf http://127.0.0.1:8086/healthz >/dev/null; then
+              # The API answering is not enough on its own: a deploy that
+              # shipped a broken web root would still pass that check.
+              if curl -sf http://127.0.0.1:8086/ | grep -q 'id="root"'; then
+                echo "quartz is up and serving the app"
+                exit 0
+              fi
+              echo "the API is up but the app shell is missing" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "quartz did not come up" >&2
+          sudo journalctl -u quartz -n 40 --no-pager >&2
+          exit 1
+          REMOTE
