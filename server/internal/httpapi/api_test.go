@@ -35,11 +35,12 @@ type harness struct {
 func newHarness(t *testing.T) *harness {
 	t.Helper()
 	cfg := config.Config{
-		DataDir:      t.TempDir(),
-		SessionTTL:   time.Hour,
-		SecureCookie: false,
-		MaxFileBytes: 1 << 20,
-		GitEnabled:   false, // git is exercised in the service package
+		DataDir:       t.TempDir(),
+		SessionTTL:    time.Hour,
+		SecureCookie:  false,
+		MaxFileBytes:  1 << 20,
+		MaxVaultBytes: 4 << 20,
+		GitEnabled:    false, // git is exercised in the service package
 	}
 	store, err := accounts.Open(cfg.AccountsDB())
 	if err != nil {
@@ -627,5 +628,90 @@ func TestOversizeRejected(t *testing.T) {
 	resp := juli.put("juli", "big.bin", make([]byte, (1<<20)+1), map[string]string{"If-None-Match": "*"})
 	if resp.StatusCode != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversize upload = %d, want 413", resp.StatusCode)
+	}
+}
+
+// --- promoting a folder ---------------------------------------------------
+
+func (u *signedIn) promote(id, name string, size int64) *http.Response {
+	body, _ := json.Marshal(map[string]any{"id": id, "name": name, "bytes": size})
+	return u.do(http.MethodPost, "/api/vaults", body, map[string]string{"Content-Type": "application/json"})
+}
+
+func TestPromotingAFolderCreatesAVaultTheCallerOwns(t *testing.T) {
+	h := newHarness(t)
+	juli := h.account("juli")
+
+	resp := juli.promote("field-notes", "Field notes", 4096)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("promote = %d, want 201", resp.StatusCode)
+	}
+	made := decode[accounts.Vault](t, resp)
+	if made.Owner != "juli" || made.Role != accounts.Owner {
+		t.Fatalf("promoted vault = %+v, want owned by juli", made)
+	}
+
+	// It is a vault like any other from here on: listed, writable, searchable.
+	listed := decode[vaultList](t, juli.do(http.MethodGet, "/api/vaults", nil, nil))
+	var found bool
+	for _, v := range listed.Vaults {
+		if v.ID == "field-notes" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("promoted vault missing from %+v", listed.Vaults)
+	}
+	juli.create("field-notes", "a.md", "# seeded")
+	if got := juli.get("field-notes", "a.md"); got.StatusCode != http.StatusOK {
+		t.Fatalf("reading back a seeded file = %d", got.StatusCode)
+	}
+}
+
+func TestPromotingCannotTakeANameAlreadyUsed(t *testing.T) {
+	h := newHarness(t)
+	juli := h.account("juli")
+	maria := h.account("maria")
+
+	if resp := juli.promote("shared-name", "Mine", 10); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("first promote = %d", resp.StatusCode)
+	}
+	// Taken by someone else's vault, and taken by an account's own name: both
+	// are one flat namespace, and both have to say so rather than collide.
+	for _, id := range []string{"shared-name", "juli"} {
+		if resp := maria.promote(id, "Theirs", 10); resp.StatusCode != http.StatusConflict {
+			t.Fatalf("promote %q = %d, want 409", id, resp.StatusCode)
+		}
+	}
+}
+
+func TestPromotingAFolderTooBigIsRefusedBeforeAnythingIsCreated(t *testing.T) {
+	h := newHarness(t)
+	juli := h.account("juli")
+
+	resp := juli.promote("huge", "Huge", 8<<20)
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversize promote = %d, want 413", resp.StatusCode)
+	}
+	if _, err := h.store.Vault("huge"); err == nil {
+		t.Fatal("a refused promotion still created the vault")
+	}
+}
+
+func TestPromotingRejectsANameThatIsNotOne(t *testing.T) {
+	h := newHarness(t)
+	juli := h.account("juli")
+	for _, id := range []string{"", "../escape", "a/b", "has space", "."} {
+		if resp := juli.promote(id, "x", 10); resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("promote %q = %d, want 400", id, resp.StatusCode)
+		}
+	}
+}
+
+func TestPromotingNeedsASession(t *testing.T) {
+	h := newHarness(t)
+	stranger := &signedIn{h: h, name: "nobody"}
+	if resp := stranger.promote("theirs", "Theirs", 10); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("promote with no session = %d, want 401", resp.StatusCode)
 	}
 }

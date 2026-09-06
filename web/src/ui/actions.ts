@@ -1,5 +1,6 @@
 import { noteTitle } from '../state/notes'
 import { useApp } from '../state/store'
+import { slugForVault } from '../state/vaults'
 import { askConfirm, askText, openMenu } from './dialogs'
 
 /**
@@ -65,6 +66,33 @@ export async function promptDelete(path: string): Promise<boolean> {
   if (!ok) return false
   await useApp.getState().deleteNote(path)
   return true
+}
+
+/**
+ * Publishing a folder. Two steps on purpose: the name decides the id, and the
+ * id is shown back before anything is created, because nothing in the app
+ * un-does this afterwards.
+ */
+export async function promptPromote(id: string): Promise<void> {
+  const folder = useApp.getState().vaults.find((v) => v.id === id)
+  if (!folder) return
+
+  const name = await askText({
+    title: 'Sync to the server',
+    label: 'Name on the server',
+    value: folder.name,
+    confirmLabel: 'Continue',
+  })
+  if (name === null) return
+
+  const slug = slugForVault(name)
+  const ok = await askConfirm({
+    title: `Publish ${name}?`,
+    body: `A copy goes to the server as “${slug}”, and every device you sign in on can open it. The folder stays where it is. Nothing in the app undoes this.`,
+    confirmLabel: 'Publish',
+  })
+  if (!ok) return
+  await useApp.getState().promoteVault(id, name)
 }
 
 /**

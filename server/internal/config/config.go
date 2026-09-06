@@ -29,6 +29,11 @@ type Config struct {
 	GitDebounce time.Duration
 
 	MaxFileBytes int64
+	// The most a folder may be when it is promoted to a synced vault. The Pi
+	// runs off an SD card and vaults used to need shell access to create, so
+	// this is what replaces that as the thing standing between a mistake and a
+	// full disk.
+	MaxVaultBytes int64
 }
 
 func Load() (Config, error) {
@@ -43,6 +48,7 @@ func Load() (Config, error) {
 		SecureCookie:       envBool("QUARTZ_SECURE_COOKIE", true),
 		GitEnabled:         envBool("QUARTZ_GIT", true),
 		MaxFileBytes:       int64(envInt("QUARTZ_MAX_FILE_MB", 64)) << 20,
+		MaxVaultBytes:      int64(envInt("QUARTZ_MAX_VAULT_MB", 2048)) << 20,
 	}
 
 	// Long sliding TTL: an offline launch must never bounce you to a login

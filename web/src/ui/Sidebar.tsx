@@ -4,7 +4,13 @@ import { useApp } from '../state/store'
 import { folderOf, isConflictCopy, isNote, noteTitle } from '../state/notes'
 import { vaultHint } from '../state/vaults'
 import { foldersSupported } from '../vault/folders'
-import { promptDelete, promptForgetFolder, promptNewNote, promptSignOut } from './actions'
+import {
+  promptDelete,
+  promptForgetFolder,
+  promptNewNote,
+  promptPromote,
+  promptSignOut,
+} from './actions'
 import { AppBar } from './AppBar'
 import { openMenu } from './dialogs'
 import { usePullToRefresh, useSwipeToReveal } from './gestures'
@@ -94,7 +100,13 @@ export function Sidebar({ onNavigate, inert }: Props) {
       // Not every build can open one: iOS and Firefox have no way to.
       ...(foldersSupported() ? [{ label: 'Open folder…', run: () => void openFolder() }] : []),
       ...(open?.kind === 'local'
-        ? [{ label: 'Forget this folder', hint: 'Leaves the notes on disk', run: () => void promptForgetFolder(open.id) }]
+        ? [
+            // Publishing needs an account to publish to.
+            ...(vaults.some((v) => v.kind !== 'local')
+              ? [{ label: 'Sync this vault…', hint: 'Copies it to the server', run: () => void promptPromote(open.id) }]
+              : []),
+            { label: 'Forget this folder', hint: 'Leaves the notes on disk', run: () => void promptForgetFolder(open.id) },
+          ]
         : [{ label: 'Sync now', run: () => void syncNow() }]),
       { label: 'Sign out', run: () => void promptSignOut() },
     ])

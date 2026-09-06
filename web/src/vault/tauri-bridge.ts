@@ -20,6 +20,8 @@ export interface LocalVaultEntry {
   id: string
   name: string
   path: string
+  /** True once promoted: the id is the server's and the notes have not moved. */
+  synced: boolean
 }
 
 /** The folders opened as vaults on this device. None, in a browser. */
@@ -35,6 +37,11 @@ export async function localVaults(): Promise<LocalVaultEntry[]> {
  */
 export async function pickLocalVault(): Promise<LocalVaultEntry | undefined> {
   return (await tauri().invoke<LocalVaultEntry | null>('pick_local_vault')) ?? undefined
+}
+
+/** Re-keys a promoted folder to the id its vault was given on the server. */
+export async function promoteLocalVault(id: string, newId: string): Promise<LocalVaultEntry> {
+  return tauri().invoke<LocalVaultEntry>('promote_local_vault', { id, newId })
 }
 
 /** Stops listing a folder. The folder and its notes stay where they are. */

@@ -23,8 +23,12 @@ export function VaultSwitcher() {
 
   if (vaults.length <= 1 && !canOpenFolders) return null
 
-  const mine = vaults.filter((v): v is VaultSummary => v.kind === 'private')
-  const shared = vaults.filter((v): v is VaultSummary => v.kind === 'shared')
+  // Grouped by who owns a vault, not by its kind. A promoted folder is a
+  // vault with a member list — "shared" in the schema — while having no one in
+  // it but you, and filing it under Shared would be a lie about your own notes.
+  const server = vaults.filter((v): v is VaultSummary => !isLocal(v))
+  const mine = server.filter((v) => v.owner === user)
+  const shared = server.filter((v) => v.owner !== user)
   const folders = vaults.filter(isLocal)
 
   return (
@@ -37,7 +41,7 @@ export function VaultSwitcher() {
               <optgroup label="Yours">
                 {mine.map((v) => (
                   <option key={v.id} value={v.id}>
-                    {v.owner === user ? v.name : `${v.name} (${v.owner})`}
+                    {v.name}
                   </option>
                 ))}
               </optgroup>
@@ -46,8 +50,7 @@ export function VaultSwitcher() {
               <optgroup label="Shared">
                 {shared.map((v) => (
                   <option key={v.id} value={v.id}>
-                    {v.name}
-                    {v.owner === user ? '' : ` · ${v.owner}`}
+                    {v.name} · {v.owner}
                   </option>
                 ))}
               </optgroup>

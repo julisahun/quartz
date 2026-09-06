@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { VaultSummary } from '../api/client'
-import { chooseVault, mergeVaults, vaultHint, type LocalVaultSummary } from './vaults'
+import {
+  chooseVault,
+  mergeVaults,
+  slugForVault,
+  vaultHint,
+  type LocalVaultSummary,
+} from './vaults'
 
 const mine: VaultSummary = { id: 'juli', name: 'juli', kind: 'private', owner: 'juli', role: 'owner' }
 const casa: VaultSummary = { id: 'casa', name: 'Casa', kind: 'shared', owner: 'maria', role: 'member' }
@@ -53,10 +59,38 @@ describe('choosing which vault to open', () => {
 })
 
 describe('describing a vault', () => {
-  it('says where each one lives', () => {
+  it('says where each one lives, and whose it is', () => {
     expect(vaultHint(mine, 'juli')).toBe('private')
     expect(vaultHint(casa, 'juli')).toBe('shared · maria')
-    expect(vaultHint(casa, 'maria')).toBe('shared')
+    // Owned by the person looking at it: a promoted folder, not someone
+    // else's vault, however the schema files it.
+    expect(vaultHint(casa, 'maria')).toBe('yours')
     expect(vaultHint(folder, 'juli')).toBe('on this device')
+  })
+})
+
+describe('the id a promoted vault takes', () => {
+  it('makes a name into something the server and the disk both accept', () => {
+    expect(slugForVault('Field notes')).toBe('field-notes')
+    expect(slugForVault('Recetas de la Abuela')).toBe('recetas-de-la-abuela')
+    expect(slugForVault('Día a día')).toBe('dia-a-dia')
+    expect(slugForVault('notes/../escape')).toBe('notes-escape')
+    expect(slugForVault('  padded  ')).toBe('padded')
+    expect(slugForVault('keep.dots_and-dashes')).toBe('keep.dots_and-dashes')
+  })
+
+  it('gives back nothing when there is nothing to make an id from', () => {
+    // The caller has to catch this: an empty id is refused by the server, and
+    // "bad name" is a worse thing to read than being asked for another one.
+    expect(slugForVault('!!!')).toBe('')
+    expect(slugForVault('   ')).toBe('')
+  })
+
+  it('stays inside what the server calls a name', () => {
+    for (const raw of ['Field notes', 'Día a día', 'a'.repeat(200), 'x/y\\z']) {
+      const slug = slugForVault(raw)
+      expect(slug).toMatch(/^[a-z0-9._-]*$/)
+      expect(slug.length).toBeLessThanOrEqual(64)
+    }
   })
 })

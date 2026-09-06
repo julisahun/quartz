@@ -56,6 +56,17 @@ fn pick_local_vault(
     state.add_local(&path).map(Some)
 }
 
+/// Re-keys a promoted folder to the id its vault was given on the server. The
+/// folder itself does not move.
+#[tauri::command]
+fn promote_local_vault(
+    id: String,
+    new_id: String,
+    state: tauri::State<'_, VaultState>,
+) -> Result<LocalVault, String> {
+    state.promote_local(&id, &new_id)
+}
+
 #[tauri::command]
 fn forget_local_vault(id: String, state: tauri::State<'_, VaultState>) -> Result<(), String> {
     state.forget_local(&id)
@@ -130,6 +141,7 @@ fn main() {
             vault_root,
             local_vaults,
             pick_local_vault,
+            promote_local_vault,
             forget_local_vault,
             vault_list,
             vault_read,

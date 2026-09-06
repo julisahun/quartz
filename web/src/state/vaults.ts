@@ -48,9 +48,35 @@ export function chooseVault(vaults: Vault[], user: string, last?: string): strin
   return (own ?? vaults[0])?.id
 }
 
+/**
+ * The id a promoted vault takes, from the name the user gave it.
+ *
+ * The server accepts letters, digits, dots, dashes and underscores, and the id
+ * becomes a path segment in the API and a directory name on the Pi — so this
+ * has to produce something that survives both, or the promotion is refused for
+ * a reason nobody typed.
+ */
+export function slugForVault(name: string): string {
+  const slug = name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '') // é → e, so an accent is not a dash
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    // A single separator is kept as it was typed; a pile of them becomes one
+    // dash, so "notes/../escape" reads as "notes-escape" and not as a path
+    // someone tried to write.
+    .replace(/[-.]{2,}/g, '-')
+    .replace(/^[-._]+|[-._]+$/g, '')
+    .slice(0, 64)
+  return slug
+}
+
 /** How a vault describes itself in a menu, under its name. */
 export function vaultHint(vault: Vault, user: string): string {
   if (isLocal(vault)) return 'on this device'
-  if (vault.kind === 'shared') return vault.owner === user ? 'shared' : `shared · ${vault.owner}`
-  return 'private'
+  if (vault.kind === 'private') return 'private'
+  // A promoted folder has a member list holding only its owner. That is
+  // "shared" to the schema and plainly yours to everyone else.
+  if (vault.owner === user) return 'yours'
+  return `shared · ${vault.owner}`
 }

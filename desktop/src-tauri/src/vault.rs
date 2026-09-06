@@ -24,14 +24,22 @@ pub struct FileMeta {
     pub mtime: i64,
 }
 
-/// A folder the user opened as a vault. It belongs to no account and never
-/// syncs: the folder on disk is the whole of it, which is what makes the app
-/// usable with no server at all.
+/// A folder the user opened as a vault.
+///
+/// Until it is promoted it belongs to no account and never syncs: the folder
+/// on disk is the whole of it, which is what makes the app usable with no
+/// server at all. Promotion does not move it — the entry is re-keyed to the id
+/// the server gave the vault, and from then on this is where that vault's
+/// bytes live on this machine.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct LocalVault {
     pub id: String,
     pub name: String,
     pub path: PathBuf,
+    /// Set once the folder has been promoted. Defaulted so a settings file
+    /// written before promotion existed still loads.
+    #[serde(default)]
+    pub synced: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -129,16 +137,48 @@ impl VaultState {
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "vault".to_string()),
             path,
+            synced: false,
         };
         settings.local.push(vault.clone());
         settings.save(&self.config_dir)?;
         Ok(vault)
     }
 
+    /// Re-keys a folder to the id the server gave its vault, and marks it
+    /// synced. The folder does not move: a promotion is about where the notes
+    /// are *published*, not about where the user keeps them.
+    pub fn promote_local(&self, id: &str, new_id: &str) -> Result<LocalVault, String> {
+        if !valid_vault_id(new_id) {
+            return Err(format!("invalid vault id: {new_id}"));
+        }
+        let mut settings = self.settings.lock().map_err(|_| "settings lock")?;
+        if new_id != id && settings.local.iter().any(|v| v.id == new_id) {
+            return Err(format!("{new_id} is already a folder here"));
+        }
+        let Some(vault) = settings.local.iter_mut().find(|v| v.id == id) else {
+            return Err(format!("no local vault {id}"));
+        };
+        vault.id = new_id.to_string();
+        vault.synced = true;
+        let promoted = vault.clone();
+        settings.save(&self.config_dir)?;
+        drop(settings);
+        // The bookkeeping was filed under the old id and describes a vault
+        // that had never synced; the first sync writes it afresh.
+        let _ = fs::remove_file(self.config_dir.join(format!("sync-state-{id}.json")));
+        Ok(promoted)
+    }
+
     /// Forgets a local vault. The folder and every note in it stay exactly
     /// where they are — only quartz's bookkeeping goes.
     pub fn forget_local(&self, id: &str) -> Result<(), String> {
         let mut settings = self.settings.lock().map_err(|_| "settings lock")?;
+        if settings.local.iter().any(|v| v.id == id && v.synced) {
+            // Forgetting one would leave a synced vault with nowhere to live
+            // and it would quietly re-download into the managed base. There is
+            // no un-syncing yet, so this says no rather than half-doing it.
+            return Err(format!("{id} is a synced vault now — remove it with quartz-admin"));
+        }
         let before = settings.local.len();
         settings.local.retain(|v| v.id != id);
         if settings.local.len() == before {
@@ -433,6 +473,54 @@ mod tests {
         fs::remove_dir_all(&picked).unwrap();
         assert!(state.root(&vault.id).is_err());
         assert!(state.list(&vault.id).is_err());
+        fs::remove_dir_all(&dirs).ok();
+    }
+
+    #[test]
+    fn promotion_re_keys_the_folder_without_moving_it() {
+        let dirs = scratch("promote");
+        let picked = dirs.join("Field notes");
+        fs::create_dir_all(&picked).unwrap();
+        fs::write(picked.join("a.md"), b"# a").unwrap();
+        let state = state_in(&dirs);
+        let local = state.add_local(&picked).unwrap();
+
+        let promoted = state.promote_local(&local.id, "field-notes").unwrap();
+        assert_eq!(promoted.id, "field-notes");
+        assert!(promoted.synced);
+        // The notes are exactly where the user left them, and the vault now
+        // answers to the name the server gave it.
+        assert_eq!(
+            fs::canonicalize(state.root("field-notes").unwrap()).unwrap(),
+            fs::canonicalize(&picked).unwrap()
+        );
+        assert!(picked.join("a.md").exists());
+        // The old id no longer names this folder. It still resolves, because
+        // any unknown id falls through to a fresh directory under the base —
+        // but to an empty one, not to the user's notes.
+        assert_ne!(
+            fs::canonicalize(state.root(&local.id).unwrap()).unwrap(),
+            fs::canonicalize(&picked).unwrap()
+        );
+
+        // No un-syncing: forgetting it would leave the vault homeless.
+        assert!(state.forget_local("field-notes").is_err());
+        fs::remove_dir_all(&dirs).ok();
+    }
+
+    #[test]
+    fn promotion_refuses_a_name_another_folder_answers_to() {
+        let dirs = scratch("promote-clash");
+        let (a, b) = (dirs.join("One"), dirs.join("Two"));
+        fs::create_dir_all(&a).unwrap();
+        fs::create_dir_all(&b).unwrap();
+        let state = state_in(&dirs);
+        let first = state.add_local(&a).unwrap();
+        let second = state.add_local(&b).unwrap();
+
+        state.promote_local(&first.id, "notes").unwrap();
+        assert!(state.promote_local(&second.id, "notes").is_err());
+        assert!(state.promote_local(&second.id, "../escape").is_err());
         fs::remove_dir_all(&dirs).ok();
     }
 

@@ -1,5 +1,11 @@
 import { useApp, type SyncState } from '../state/store'
-import { promptDelete, promptForgetFolder, promptRename, promptSignOut } from './actions'
+import {
+  promptDelete,
+  promptForgetFolder,
+  promptPromote,
+  promptRename,
+  promptSignOut,
+} from './actions'
 import { useIsPhone } from './media'
 
 interface Props {
@@ -62,9 +68,16 @@ export function StatusBar({ livePreview, onToggleLivePreview }: Props) {
             </>
           )}
           {isFolder && currentVault && (
-            <button className="ghost" onClick={() => void promptForgetFolder(currentVault)}>
-              forget folder
-            </button>
+            <>
+              {signedIn && (
+                <button className="ghost" onClick={() => void promptPromote(currentVault)}>
+                  sync…
+                </button>
+              )}
+              <button className="ghost" onClick={() => void promptForgetFolder(currentVault)}>
+                forget folder
+              </button>
+            </>
           )}
           {signedIn && (
             <button className="ghost" onClick={() => void promptSignOut()}>

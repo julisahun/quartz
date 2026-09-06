@@ -112,6 +112,8 @@ export interface Api {
   /** The signed-in identity, or undefined when the session is gone. */
   session(): Promise<Identity | undefined>
   vaults(): Promise<VaultSummary[]>
+  /** Promotes a folder: the account gets a vault of its own to fill. */
+  createVault(input: { id: string; name: string; bytes: number }): Promise<VaultSummary>
   vault(id: string): VaultApi
 }
 
@@ -199,6 +201,15 @@ export class HttpApi implements Api {
   async vaults(): Promise<VaultSummary[]> {
     const resp = await this.request('/api/vaults')
     return (await resp.json()).vaults ?? []
+  }
+
+  async createVault(input: { id: string; name: string; bytes: number }): Promise<VaultSummary> {
+    const resp = await this.request('/api/vaults', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    return resp.json()
   }
 
   /** Binds every content call below to one vault. */

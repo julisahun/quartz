@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"quartz/internal/accounts"
 	"quartz/internal/auth"
 	"quartz/internal/config"
+	"quartz/internal/provision"
 	"quartz/internal/registry"
 	"quartz/internal/service"
 
@@ -84,6 +86,7 @@ func (a *API) Router() http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Use(a.requireSession)
 		r.Get("/vaults", a.handleVaults)
+		r.Post("/vaults", a.handleCreateVault)
 
 		r.Route("/v/{vault}", func(r chi.Router) {
 			r.Use(a.requireVault)
@@ -149,6 +152,69 @@ func (a *API) handleVaults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"vaults": vaults})
+}
+
+// handleCreateVault promotes a folder: the caller gets a vault of its own on
+// the server, which it then fills through the ordinary file routes.
+//
+// This is the only way a vault comes into being without shell access, which
+// reverses part of "vault changes are CLI-only" (DECISIONS.md) on purpose. It
+// creates a vault owned by the caller and nothing else — adding other people
+// to one is still quartz-admin's job — so the reach of the endpoint is one
+// account's own storage.
+func (a *API) handleCreateVault(w http.ResponseWriter, r *http.Request) {
+	user := userFrom(r)
+	var body struct {
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Bytes int64  `json:"bytes"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "expected {id, name, bytes}")
+		return
+	}
+	if !accounts.ValidName(body.ID) {
+		writeError(w, http.StatusBadRequest, "bad_name", accounts.ErrBadName.Error())
+		return
+	}
+	// What the client says it is about to upload. This guards against pointing
+	// a promotion at a 40 GB folder by mistake; it is not a defence against a
+	// client that lies, and is not meant to be. Signing in already means being
+	// trusted with the disk you are writing to.
+	if a.cfg.MaxVaultBytes > 0 && body.Bytes > a.cfg.MaxVaultBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "too_large",
+			fmt.Sprintf("that folder is %d MB and the limit is %d MB",
+				body.Bytes>>20, a.cfg.MaxVaultBytes>>20))
+		return
+	}
+	if body.Name == "" {
+		body.Name = body.ID
+	}
+
+	switch err := provision.SharedVault(a.accounts, a.cfg, body.ID, body.Name, user); {
+	case err == nil:
+	case errors.Is(err, accounts.ErrVaultExists):
+		// Deliberately not 404-by-obscurity like the read routes: the id is a
+		// name the user is choosing, and "taken" is what they need to hear.
+		writeError(w, http.StatusConflict, "vault_exists", "that name is already taken")
+		return
+	case errors.Is(err, accounts.ErrBadName):
+		writeError(w, http.StatusBadRequest, "bad_name", accounts.ErrBadName.Error())
+		return
+	default:
+		a.log.Error("creating a vault failed", "vault", body.ID, "user", user, "err", err)
+		writeError(w, http.StatusInternalServerError, "server_error", "could not create the vault")
+		return
+	}
+
+	vault, err := a.accounts.Vault(body.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "server_error", "could not read the vault back")
+		return
+	}
+	vault.Role = accounts.Owner
+	a.log.Info("vault created from a promoted folder", "vault", vault.ID, "user", user)
+	writeJSON(w, http.StatusCreated, vault)
 }
 
 func (a *API) handleMembers(w http.ResponseWriter, r *http.Request) {

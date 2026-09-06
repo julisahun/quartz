@@ -6,8 +6,10 @@ import {
   accessGranted,
   ensureAccess,
   forgetFolder as forgetFolderOnDisk,
+  isFolderBacked,
   listFolders,
   pickFolder,
+  promoteFolder,
 } from '../vault/folders'
 import { isDesktop } from '../vault/tauri-bridge'
 import { decodeText, encodeText, type FileMeta, type VaultStore } from '../vault/types'
@@ -15,7 +17,14 @@ import { LinkIndex, retargetLinks, sameBacklinks, type Backlink } from './links'
 import { buildResolver, isNote, noteTitle, pathForTitle, uniquePath } from './notes'
 import { persisted } from './persist'
 import { detectEviction, requestPersistence } from './storage'
-import { chooseVault, isLocal, mergeVaults, type LocalVaultSummary, type Vault } from './vaults'
+import {
+  chooseVault,
+  isLocal,
+  mergeVaults,
+  slugForVault,
+  type LocalVaultSummary,
+  type Vault,
+} from './vaults'
 
 export type SyncState = 'idle' | 'syncing' | 'offline' | 'needs-login' | 'error' | 'local'
 
@@ -78,6 +87,11 @@ interface AppState {
   selectVault(id: string): Promise<void>
   /** Picks a folder on disk and opens it as a vault of its own. */
   openFolder(): Promise<void>
+  /**
+   * Publishes a folder: the server gets a vault of its own, seeded from it,
+   * and every device on the account can open it from then on.
+   */
+  promoteVault(id: string, name: string): Promise<void>
   /** Stops listing a folder. Never touches the folder or the notes in it. */
   forgetFolder(id: string): Promise<void>
   open(path: string): Promise<void>
@@ -121,7 +135,7 @@ export const useApp = create<AppState>()((set, get) => {
     const existing = runtimes.get(key)
     if (existing) return existing
 
-    const store = createVaultStore(user, vaultId, local)
+    const store = createVaultStore(user, vaultId, isFolderBacked(vaultId))
     if (local) {
       const runtime = { store, links: new LinkIndex() }
       runtimes.set(key, runtime)
@@ -215,8 +229,10 @@ export const useApp = create<AppState>()((set, get) => {
   const bootVault = async (user: string): Promise<string | undefined> => {
     const vaults = get().vaults
     const chosen = chooseVault(vaults, user, persisted.lastVault())
-    if (!chosen || !isLocalVault(chosen) || (await accessGranted(chosen))) return chosen
-    return chooseVault(vaults.filter((v) => !isLocal(v)), user) ?? chosen
+    // Folder-backed, not local: a promoted folder still lives behind a browser
+    // permission, and is no longer a local vault.
+    if (!chosen || !isFolderBacked(chosen) || (await accessGranted(chosen))) return chosen
+    return chooseVault(vaults.filter((v) => !isFolderBacked(v.id)), user) ?? chosen
   }
 
   const adoptIdentity = async (user: string, vaults: VaultSummary[]) => {
@@ -250,9 +266,9 @@ export const useApp = create<AppState>()((set, get) => {
       const device = persisted.device()
       const cachedUser = persisted.user() ?? ''
       const cachedVaults = persisted.vaults()
-      const folders = (await listFolders()).map(
-        (f): LocalVaultSummary => ({ ...f, kind: 'local' }),
-      )
+      const folders = (await listFolders())
+        .filter((f) => !f.synced)
+        .map((f): LocalVaultSummary => ({ ...f, kind: 'local' }))
       set({ device, user: cachedUser, vaults: mergeVaults(cachedVaults, folders) })
       if (!desktop) void requestPersistence()
 
@@ -332,7 +348,7 @@ export const useApp = create<AppState>()((set, get) => {
       // tab, so re-granting it is the normal path on a cold start. The browser
       // will ask only while the click that got here is still fresh, which is
       // why this comes before anything slow.
-      if (isLocalVault(id) && !(await ensureAccess(id))) {
+      if (isFolderBacked(id) && !(await ensureAccess(id))) {
         const name = get().vaults.find((v) => v.id === id)?.name ?? id
         notice('info', `${name} needs permission again — choose it in the list to let the browser ask.`)
         return
@@ -371,6 +387,12 @@ export const useApp = create<AppState>()((set, get) => {
       }
       if (!picked) return // the picker was dismissed
 
+      if (picked.synced) {
+        // Already published: it is one of the account's vaults, not a folder
+        // waiting to become one.
+        await get().selectVault(picked.id)
+        return
+      }
       const folder: LocalVaultSummary = { ...picked, kind: 'local' }
       const server = get().vaults.filter((v): v is VaultSummary => !isLocal(v))
       const folders = get().vaults.filter(isLocal).filter((v) => v.id !== folder.id)
@@ -383,6 +405,58 @@ export const useApp = create<AppState>()((set, get) => {
         return
       }
       await get().selectVault(folder.id)
+    },
+
+    async promoteVault(id, name) {
+      const folder = get().vaults.find((v) => v.id === id)
+      if (!folder || !isLocal(folder)) return
+      const serverId = slugForVault(name)
+      if (!serverId) {
+        notice('error', 'That name has no letters or digits in it to make an id from.')
+        return
+      }
+
+      // Weighed here rather than trusted from the folder: the server is being
+      // told what it is about to receive so it can refuse before anything is
+      // created on the Pi.
+      const files = await runtimeFor(id).store.list()
+      const bytes = files.reduce((total, f) => total + f.size, 0)
+
+      let created
+      try {
+        created = await api.createVault({ id: serverId, name, bytes })
+      } catch (err) {
+        notice('error', err instanceof Error ? err.message : 'could not create the vault')
+        return
+      }
+
+      // The vault exists on the server from here on. If re-keying the folder
+      // fails, that vault is real but empty, and saying so is better than
+      // leaving a folder pointing at a name nothing answers to.
+      try {
+        await promoteFolder(id, serverId)
+      } catch (err) {
+        notice(
+          'error',
+          `${created.name} was created on the server but this folder could not be attached to it: ${String(err)}`,
+        )
+        return
+      }
+
+      // The local vault is gone as a thing in its own right; what took its
+      // place is a vault of the account's, whose files happen to be here.
+      runtimes.delete(`local/${id}`)
+      set((state) => ({
+        vaults: mergeVaults(
+          [...state.vaults.filter((v): v is VaultSummary => !isLocal(v)), created],
+          state.vaults.filter(isLocal).filter((v) => v.id !== id),
+        ),
+        currentVault: state.currentVault === id ? undefined : state.currentVault,
+      }))
+      persisted.setVaults(get().vaults.filter((v): v is VaultSummary => !isLocal(v)))
+
+      await get().selectVault(serverId)
+      notice('info', `${created.name} is syncing. Your other devices can open it once it finishes.`)
     },
 
     async forgetFolder(id) {

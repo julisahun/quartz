@@ -116,6 +116,44 @@ Nothing says so beyond the docs. In a browser it is also only as durable as
 the handle in IndexedDB — site data cleared means the folder has to be picked
 again, though nothing in it is lost.
 
+## Syncing a folder (2026-09-06)
+
+Opening folders from disk left two species of vault that could never meet: one
+made by `quartz-admin` that could only ever sync, one opened from disk that
+could only ever stay put. That was an artifact of building accounts first and
+folders last, not a position. This collapses them.
+
+There is one kind of vault: a folder of notes. Sync is a property it may gain.
+
+| Question | Decision | Notes |
+|---|---|---|
+| Two kinds, or one? | **One, with or without sync** | A vault opens local and stays local until asked otherwise. What used to be a "server vault" is just a vault that has been promoted, seen from a device that has synced it. |
+| How does one gain sync? | **Promotion, by its owner, deliberately** | Never from the same menu as opening a folder: "this leaves your machine" earns its own step. |
+| Who can promote? | **The signed-in account, for a vault it owns** | This reverses "vault changes are CLI-only" from the multiple-people decision above. An authenticated account creating a vault it owns is a far smaller surface than a signup endpoint — but it is a reversal, made on purpose. Adding *other accounts* to a vault stays CLI-only. |
+| Available to whom? | **The account, everywhere** | No device logic. Promotion is not "share from this laptop"; it makes the vault one of the things `/api/vaults` lists for that user, and any device they sign into can sync it. |
+| Copy, or reach back to the device? | **The Pi takes its own copy** | Promotion uploads once and the server owns a copy from then on, with its own git repo, index and watcher like any other vault. No device has to be reachable for another device to sync — the server is the store of record, exactly as it already was. |
+| Un-sync? | **Not for now** | Nothing demotes a vault or takes it off the server. The answer is the CLI, over SSH. Worth revisiting only once something actually wants it; deciding it badly now would be worse than leaving it out. |
+
+And the four that came with it:
+
+| Question | Decision | Notes |
+|---|---|---|
+| What is it called on the server? | **The promotion asks** | One field, pre-filled from the folder's name, and the id derived from it (`slugForVault`) is shown back before anything is created. A name already taken is a 409 saying so — the read routes answer 404 to hide whether a vault exists, but this is a name the user is choosing and "taken" is what they need to hear. |
+| What stops a 40 GB folder? | **`QUARTZ_MAX_VAULT_MB`, default 2048** | Checked against the size the client declares, before the vault is created, so an oversize promotion fails with a number instead of half-filling the SD card. It is a guard against a mistake, not against a client that lies — signing in already means being trusted with the disk you write to. |
+| Where does the folder end up? | **Exactly where it was** | The shell's folder entry is re-keyed to the server's id and marked synced; `root()` already resolved a vault by that table first, so the path override was mostly already there. Nothing is moved: a promotion is about where notes are published, not about where somebody keeps them. |
+| A second device onto an existing copy? | **Adopt what matches, conflict only what differs** | Already how `reconcile()` worked: a local file whose hash equals the server's is marked clean instead of pushed. The case this was feared for — the same Obsidian vault on two machines — was already the case it handled. No change, and `engine.test.ts` covers it. |
+
+Two things fell out of the shape rather than being chosen:
+
+- **A promoted vault is `shared` in the schema**, because "shared" means a vault
+  with a membership list and "private" means the one every account gets
+  automatically. It holds only its owner until the CLI adds anyone. The switcher
+  therefore groups by *owner*, not by kind — filing your own notes under
+  "Shared" would be a lie about them.
+- **Forgetting a promoted folder is refused.** It would leave a synced vault
+  with nowhere to live, and it would quietly re-download somewhere else. With
+  no un-syncing, saying no beats half-doing it.
+
 ## Decisions taken while building
 
 - **Pure-Go SQLite** (`modernc.org/sqlite`) rather than `mattn/go-sqlite3`, so

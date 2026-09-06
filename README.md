@@ -57,6 +57,7 @@ deploy/           systemd unit, cloudflared snippet, Pi checklist
 | `POST /auth/logout` | clears it |
 | `GET /auth/session` | who you are and what you may open |
 | `GET /api/vaults` | `[{id, name, kind, owner, role}]` |
+| `POST /api/vaults` | promotes a folder: `{id, name, bytes}` → the new vault, owned by you |
 | `GET /api/v/{vault}/snapshot` | full manifest `{head, epoch, files:[…]}` |
 | `GET /api/v/{vault}/changes?since=<seq>` | journal entries after a cursor, plus `head`, `epoch`, `more` |
 | `GET /api/v/{vault}/file?path=<p>` | contents, `ETag: "<hash>"` |
@@ -139,6 +140,7 @@ Tests: `go test ./...` (add `-race` before pushing).
 | `QUARTZ_GIT` | `true` | commit vault changes |
 | `QUARTZ_GIT_DEBOUNCE_SECONDS` | `30` | quiet period before committing |
 | `QUARTZ_MAX_FILE_MB` | `64` | attachment size limit |
+| `QUARTZ_MAX_VAULT_MB` | `2048` | the most a folder may be when it is promoted |
 | `QUARTZ_DEV_ORIGIN` | *(unset)* | extra CORS origin for the Vite dev server |
 
 ## The web app
@@ -201,9 +203,25 @@ there is no such thing and the button is not shown. A browser also has to ask
 for the folder again after a restart: the handle survives, the permission does
 not, so a folder needing re-granting says so and is opened by choosing it.
 
-Nothing about these reaches the Pi, and nothing commits them to git. A synced
-vault has the server's history behind it; a folder from disk is worth what
-your own backups make of it.
+Nothing about these reaches the Pi until you ask it to, and nothing commits
+them to git. A synced vault has the server's history behind it; a folder from
+disk is worth what your own backups make of it.
+
+**Syncing one.** A folder can be published to the server — `sync…` in the
+status bar, or the phone's `⋯` menu — which asks what to call it, shows the id
+it will take, and then creates a vault of your own and uploads the folder into
+it. From then on it is a vault like any other and every device you sign in on
+can open it. The folder does not move; it goes on being the copy on that
+machine.
+
+The server takes its own copy, so no device has to be reachable for another to
+sync. A second device that already holds the same notes adopts every file whose
+hash matches rather than conflicting with itself — pointing two machines at one
+Obsidian vault is the case this handles, not the case that breaks it.
+
+Nothing in the app un-does this. Removing a vault from the server is
+`quartz-admin` over SSH, and a folder that has been promoted can no longer be
+forgotten from the list, since that would leave the vault with nowhere to live.
 
 ## Where each milestone stands
 

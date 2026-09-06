@@ -50,6 +50,11 @@ interface StoredFolder {
   id: string
   name: string
   handle: FileSystemDirectoryHandle
+  /**
+   * Set once promoted. The record is then a synced vault's folder rather than
+   * a local vault: the id is the server's, and the notes have not moved.
+   */
+  synced?: boolean
 }
 
 /** True where a folder can be opened from disk: Chromium, in a secure context. */
@@ -115,11 +120,12 @@ function newId(): string {
 export interface FsaFolder {
   id: string
   name: string
+  synced: boolean
 }
 
 export async function listFsaFolders(): Promise<FsaFolder[]> {
   if (!fsaSupported()) return []
-  return (await allFolders()).map(({ id, name }) => ({ id, name }))
+  return (await allFolders()).map(({ id, name, synced }) => ({ id, name, synced: !!synced }))
 }
 
 /**
@@ -138,17 +144,50 @@ export async function pickFsaFolder(): Promise<FsaFolder | undefined> {
     throw err
   }
   for (const existing of await allFolders()) {
-    if (await existing.handle.isSameEntry(handle)) return { id: existing.id, name: existing.name }
+    if (await existing.handle.isSameEntry(handle)) {
+      return { id: existing.id, name: existing.name, synced: !!existing.synced }
+    }
   }
-  const folder: StoredFolder = { id: newId(), name: handle.name, handle }
+  const folder: StoredFolder = { id: newId(), name: handle.name, handle, synced: false }
   const d = await db()
   const tx = d.transaction(HANDLES, 'readwrite')
   await writing(tx, () => tx.objectStore(HANDLES).put(folder))
-  return { id: folder.id, name: folder.name }
+  return { id: folder.id, name: folder.name, synced: false }
+}
+
+/**
+ * Re-keys a promoted folder to the id its vault was given on the server. The
+ * folder does not move — a promotion is about where the notes are published,
+ * not about where they are kept.
+ */
+export async function promoteFsaFolder(id: string, newId: string): Promise<FsaFolder> {
+  const folder = await storedFolder(id)
+  if (!folder) throw new Error('this folder is not open in this browser any more')
+  if (id !== newId && (await storedFolder(newId))) {
+    throw new Error(`${newId} is already a folder here`)
+  }
+  const promoted: StoredFolder = { ...folder, id: newId, synced: true }
+  const d = await db()
+  const tx = d.transaction([HANDLES, STATE], 'readwrite')
+  await writing(tx, () => {
+    tx.objectStore(HANDLES).delete(id)
+    tx.objectStore(HANDLES).put(promoted)
+    // The bookkeeping was filed under the old id and describes a vault that
+    // had never synced; the first sync writes it afresh.
+    tx.objectStore(STATE).delete(id)
+  })
+  return { id: newId, name: promoted.name, synced: true }
 }
 
 /** Stops listing a folder. The folder and its notes are never touched. */
 export async function forgetFsaFolder(id: string): Promise<void> {
+  const folder = await storedFolder(id)
+  if (folder?.synced) {
+    // Forgetting would leave a synced vault with nowhere to live, and it would
+    // quietly re-download into browser storage. There is no un-syncing yet, so
+    // this says no rather than half-doing it.
+    throw new Error(`${folder.name} is a synced vault now — remove it with quartz-admin`)
+  }
   const d = await db()
   const tx = d.transaction([HANDLES, STATE], 'readwrite')
   await writing(tx, () => {

@@ -50,6 +50,12 @@ and the app treats both the same way. The shell's version is the better one: it
 records the path, so a folder stays open across restarts without the browser
 asking for permission again every time.
 
+Promoting a folder (`sync…`) re-keys its entry in `settings.json` to the id the
+server gave the vault and marks it `synced`. The folder does not move, and
+`root()` keeps resolving that vault to it — which is how a synced vault comes
+to live outside the vaults base. Such an entry cannot be forgotten: the vault
+would have nowhere left to live.
+
 ## Auth
 
 The webview's origin is not the server's, so a session cookie would be a
