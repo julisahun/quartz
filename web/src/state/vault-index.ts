@@ -33,6 +33,7 @@ interface Parsed {
 export class VaultIndex {
   private parsed = new Map<string, Parsed>()
   private backlinks = new Map<string, Backlink[]>()
+  private mentions = new Map<string, Set<string>>()
   private tags: TagSummary[] = []
 
   async rebuild(files: FileMeta[], read: (path: string) => Promise<Uint8Array>): Promise<void> {
@@ -65,6 +66,18 @@ export class VaultIndex {
     return this.backlinks.get(path) ?? []
   }
 
+  /**
+   * Every note whose text points at `path`, whatever `path` is.
+   *
+   * Wider than {@link to} on purpose. A link to a PDF is not a *mention* of a
+   * note and has no business in the backlinks strip — but it is still a link,
+   * and a rename that left it pointing at a file that has moved would break a
+   * handout silently.
+   */
+  mentioning(path: string): string[] {
+    return [...(this.mentions.get(path) ?? [])]
+  }
+
   /** Every tag in the vault, by name. */
   allTags(): TagSummary[] {
     return this.tags
@@ -83,13 +96,17 @@ export class VaultIndex {
   private resolve(files: FileMeta[]): void {
     const resolve = buildResolver(files)
     const map = new Map<string, Backlink[]>()
+    const mentions = new Map<string, Set<string>>()
 
     for (const [from, { links }] of this.parsed) {
       for (const ref of links) {
         const target = resolve(ref.target)
+        if (!target || target === from) continue
+        mentions.set(target, (mentions.get(target) ?? new Set()).add(from))
+
         // A link to an attachment is not a mention of a note, and a note that
         // links to itself has not been mentioned anywhere else.
-        if (!target || target === from || !isNote(target)) continue
+        if (!isNote(target)) continue
 
         const list = map.get(target) ?? []
         // Two links to the same note on one line are one mention of it.
@@ -103,6 +120,7 @@ export class VaultIndex {
       list.sort((a, b) => a.title.localeCompare(b.title) || a.line - b.line)
     }
     this.backlinks = map
+    this.mentions = mentions
   }
 
   private collectTags(): void {

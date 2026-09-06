@@ -6,10 +6,12 @@
  * were longer than the titles under them. This turns the paths back into the
  * tree they came from; what is open and what is closed is the sidebar's
  * business, not this file's.
+ *
+ * It lists what the app can show: notes, and the PDFs filed beside them.
  */
 
 import type { FileMeta } from '../vault/types'
-import { isNote, noteTitle } from './notes'
+import { isOpenable, isPdf, noteTitle } from './notes'
 
 export interface TreeFolder {
   kind: 'folder'
@@ -17,17 +19,19 @@ export interface TreeFolder {
   path: string
   name: string
   children: TreeNode[]
-  /** Notes anywhere inside, so a closed folder can say what it is holding. */
+  /** Files anywhere inside, so a closed folder can say what it is holding. */
   count: number
 }
 
-export interface TreeNote {
-  kind: 'note'
+export interface TreeFile {
+  kind: 'file'
   path: string
   title: string
+  /** A PDF is listed beside the notes but is not one, and says so. */
+  pdf: boolean
 }
 
-export type TreeNode = TreeFolder | TreeNote
+export type TreeNode = TreeFolder | TreeFile
 
 /** Folders before notes, each in the order a person would look for them. */
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
@@ -36,7 +40,7 @@ export function buildTree(files: FileMeta[]): TreeNode[] {
   const root: TreeFolder = { kind: 'folder', path: '', name: '', children: [], count: 0 }
 
   for (const file of files) {
-    if (!isNote(file.path)) continue
+    if (!isOpenable(file.path)) continue
     const parts = file.path.split('/')
     let folder = root
     for (const name of parts.slice(0, -1)) {
@@ -44,7 +48,12 @@ export function buildTree(files: FileMeta[]): TreeNode[] {
       folder = childFolder(folder, name)
     }
     folder.count++
-    folder.children.push({ kind: 'note', path: file.path, title: noteTitle(file.path) })
+    folder.children.push({
+      kind: 'file',
+      path: file.path,
+      title: noteTitle(file.path),
+      pdf: isPdf(file.path),
+    })
   }
 
   sort(root)

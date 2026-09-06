@@ -191,6 +191,51 @@ function rowElement(
 }
 
 /**
+ * An embedded file that is not an image: a card, rather than a bare link.
+ *
+ * `![[handout.pdf]]` says "this document belongs here", and a line of link
+ * text does not carry that. It deliberately does not render the PDF in place:
+ * a scrolling document inside a scrolling note is a poor thing on a desktop
+ * and an unusable one on a phone. Clicking opens it in the pane, through the
+ * same `data-wikilink` the editor already follows.
+ */
+export class FileCardWidget extends WidgetType {
+  constructor(
+    private readonly target: string,
+    private readonly label: string,
+    private readonly kind: string,
+  ) {
+    super()
+  }
+
+  eq(other: FileCardWidget): boolean {
+    return other.target === this.target && other.label === this.label
+  }
+
+  toDOM(): HTMLElement {
+    const card = document.createElement('span')
+    card.className = 'cm-file-card'
+    card.dataset.wikilink = this.target
+    card.title = this.target
+
+    const name = document.createElement('span')
+    name.className = 'cm-file-name'
+    name.textContent = this.label
+    card.appendChild(name)
+
+    const kind = document.createElement('span')
+    kind.className = 'cm-file-kind'
+    kind.textContent = this.kind
+    card.appendChild(kind)
+    return card
+  }
+
+  ignoreEvent(): boolean {
+    return false
+  }
+}
+
+/**
  * A note's frontmatter, as the properties it is.
  *
  * Without this the block is not neutral, it is wrong: `---` parses as a

@@ -139,6 +139,27 @@ export const Code = () => (
   </Svg>
 )
 
+export const FileText = () => (
+  <Svg>
+    <path d="M9 1.75H4.5a1 1 0 0 0-1 1v10.5a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V5.25L9 1.75Z" />
+    <path d="M8.9 1.9v3.3h3.3M5.9 8.4h4.2M5.9 10.9h4.2" />
+  </Svg>
+)
+
+export const External = () => (
+  <Svg>
+    <path d="M9.5 2.5H13v3.5M12.8 2.7 7.5 8" />
+    <path d="M12 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3" />
+  </Svg>
+)
+
+export const Download = () => (
+  <Svg>
+    <path d="M8 2v8M4.8 7 8 10.2 11.2 7" />
+    <path d="M2.8 12.5h10.4" />
+  </Svg>
+)
+
 export const Refresh = () => (
   <Svg>
     <path d="M13 8a5 5 0 1 1-1.6-3.7" />

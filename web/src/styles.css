@@ -569,6 +569,17 @@ button:focus-visible {
   color: var(--muted);
 }
 
+/* A PDF sits in the tree beside the notes, marked so it is not taken for one. */
+.note-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--faint);
+}
+
+.note-row.active .note-icon {
+  color: var(--accent);
+}
+
 /* Where a row is not sitting in its folder already: search and tag results. */
 .note-folder {
   font-size: 0.72rem;
@@ -724,6 +735,64 @@ button:focus-visible {
   place-items: center;
   color: var(--faint);
   padding: 1rem;
+  text-align: center;
+}
+
+/* ---------- pdf ---------- */
+
+.pdf {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.pdf-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: var(--tap);
+  padding: 0.35rem calc(0.7rem + var(--sar)) 0.35rem calc(0.7rem + var(--sal));
+  border-bottom: 1px solid var(--border);
+}
+
+.pdf-icon {
+  display: inline-flex;
+  color: var(--faint);
+}
+
+.pdf-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.92rem;
+}
+
+.pdf-size {
+  color: var(--faint);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.pdf-frame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: none;
+  background: var(--code-bg);
+}
+
+.pdf-out {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.9rem;
+  padding: 1.5rem;
   text-align: center;
 }
 

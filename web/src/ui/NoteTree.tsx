@@ -3,7 +3,7 @@ import { isConflictCopy } from '../state/notes'
 import type { TreeNode } from '../state/tree'
 import { promptDelete } from './actions'
 import { useSwipeToReveal } from './gestures'
-import { ChevronDown, ChevronRight, Trash } from './icons'
+import { ChevronDown, ChevronRight, FileText, Trash } from './icons'
 
 /** How much of the delete button a swipe uncovers. */
 const REVEAL_PX = 92
@@ -58,6 +58,7 @@ export function NoteTree(props: TreeProps) {
             path={node.path}
             title={node.title}
             indent={depth}
+            pdf={node.pdf}
             conflict={isConflictCopy(node.path)}
             active={node.path === props.currentPath}
             swipeable={props.swipeable}
@@ -76,6 +77,8 @@ interface RowProps {
   title: string
   /** Where in the tree it sits; search results and tag hits sit at the margin. */
   indent?: number
+  /** A PDF is listed beside the notes, and marked so it is not mistaken for one. */
+  pdf?: boolean
   /** The folder it is in, worth showing when the rows are not in one. */
   folder?: string
   snippet?: string
@@ -91,6 +94,7 @@ export function NoteRow({
   path,
   title,
   indent = 0,
+  pdf,
   folder,
   snippet,
   conflict,
@@ -122,6 +126,11 @@ export function NoteRow({
         style={indent ? { paddingLeft: `${0.6 + indent * INDENT_REM}rem` } : undefined}
         onClick={() => (open ? onOpenChange(false) : onChoose(path))}
       >
+        {pdf && (
+          <span className="note-icon" aria-label="PDF" title="PDF">
+            <FileText />
+          </span>
+        )}
         <span className="note-text">
           <span className="note-title">
             {title}

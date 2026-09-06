@@ -101,6 +101,28 @@ export const themeSpec = {
   '.cm-embed-img': { maxWidth: '100%', borderRadius: '6px', display: 'block' },
   '.cm-embed-missing': { color: 'var(--danger)', fontSize: '0.85em' },
 
+  // An embedded file that is not an image: a card, not a picture of one.
+  '.cm-file-card': {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5em',
+    margin: '0',
+    padding: '0.45em 0.7em',
+    border: '1px solid var(--border)',
+    borderRadius: '8px',
+    background: 'var(--bg-raised)',
+    cursor: 'pointer',
+    fontSize: '0.92em',
+  },
+  '.cm-file-card:hover': { borderColor: 'var(--border-strong)' },
+  '.cm-file-name': { flex: '1', minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  '.cm-file-kind': {
+    flex: 'none',
+    color: 'var(--faint)',
+    fontSize: '0.75em',
+    letterSpacing: '0.06em',
+  },
+
   '.cm-table-wrap': { overflowX: 'auto', paddingTop: '0.5em', paddingBottom: '0.5em' },
   '.cm-table': { borderCollapse: 'collapse', fontSize: '0.94em', minWidth: '100%' },
   '.cm-table th, .cm-table td': {

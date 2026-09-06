@@ -116,6 +116,31 @@ describe('VaultIndex', () => {
   })
 })
 
+describe('VaultIndex mentions', () => {
+  it('keeps links to an attachment out of the backlinks but not out of sight', async () => {
+    const { files, read } = vault({
+      'runs/last.md': 'the handout: ![[carta.pdf]] and [[Ossian]]',
+      'pnj/Ossian.md': '# Ossian',
+      'assets/carta.pdf': '%PDF',
+    })
+    const index = new VaultIndex()
+    await index.rebuild(files, read)
+
+    // The strip under a note is about notes.
+    expect(index.to('assets/carta.pdf')).toEqual([])
+    // A rename still has to find what points at it.
+    expect(index.mentioning('assets/carta.pdf')).toEqual(['runs/last.md'])
+    expect(index.mentioning('pnj/Ossian.md')).toEqual(['runs/last.md'])
+  })
+
+  it('does not count a note as mentioning itself', async () => {
+    const { files, read } = vault({ 'A.md': 'about [[A]]' })
+    const index = new VaultIndex()
+    await index.rebuild(files, read)
+    expect(index.mentioning('A.md')).toEqual([])
+  })
+})
+
 describe('VaultIndex tags', () => {
   it('collects inline tags and the notes carrying them', async () => {
     const { files, read } = vault({

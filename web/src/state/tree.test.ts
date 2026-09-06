@@ -39,11 +39,14 @@ describe('buildTree', () => {
     expect((a.children[0] as TreeFolder).count).toBe(2)
   })
 
-  it('leaves attachments out, like the flat list did', () => {
-    expect(outline(buildTree(vault('a/note.md', 'attachments/logo.png')))).toEqual([
-      'a/ (1)',
-      '  note',
-    ])
+  it('lists PDFs beside the notes, and leaves other attachments out', () => {
+    // The handouts live in the vault's own folders, not in attachments/, and
+    // are half the reason those folders exist.
+    const tree = buildTree(vault('mundo/talasia.md', 'mundo/carta.pdf', 'attachments/logo.png'))
+    expect(outline(tree)).toEqual(['mundo/ (2)', '  carta.pdf', '  talasia'])
+
+    const mundo = tree[0] as TreeFolder
+    expect(mundo.children.map((c) => c.kind === 'file' && c.pdf)).toEqual([true, false])
   })
 })
 

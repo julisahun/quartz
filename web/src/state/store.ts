@@ -14,7 +14,7 @@ import {
 import { isDesktop } from '../vault/tauri-bridge'
 import { decodeText, encodeText, type FileMeta, type VaultStore } from '../vault/types'
 import { retargetLinks, type Backlink } from './links'
-import { buildResolver, isNote, noteTitle, pathForTitle, uniquePath } from './notes'
+import { buildResolver, isNote, mimeType, noteTitle, pathForTitle, uniquePath } from './notes'
 import { persisted } from './persist'
 import { detectEviction, requestPersistence } from './storage'
 import { sameBacklinks, sameTags, VaultIndex, type TagSummary } from './vault-index'
@@ -116,6 +116,8 @@ interface AppState {
   syncNow(): Promise<void>
   search(query: string): Promise<SearchHit[]>
   setQuery(query: string): void
+  /** Says something to whoever is using the app, in the same strip sync uses. */
+  notify(kind: 'info' | 'error', text: string): void
   dismissNotice(id: number): void
 }
 
@@ -216,10 +218,15 @@ export const useApp = create<AppState>()((set, get) => {
     void refreshIndex().catch((err) => console.warn('indexing the vault failed', err))
   }
 
-  /** The notes whose text mentions `path`, from an up-to-date link map. */
+  /**
+   * The notes whose text points at `path`, from an up-to-date link map.
+   *
+   * Every link, not only the ones the backlinks strip shows: a rename has to
+   * find `[[handout.pdf]]` too, or it breaks it without saying so.
+   */
   const linkingNotes = async (runtime: Runtime, path: string): Promise<string[]> => {
     await runtime.index.rebuild(get().files, (p) => runtime.store.read(p))
-    return [...new Set(runtime.index.to(path).map((b) => b.path))]
+    return runtime.index.mentioning(path)
   }
 
   const openFirstNote = async () => {
@@ -512,6 +519,20 @@ export const useApp = create<AppState>()((set, get) => {
       const runtime = current()
       if (!runtime) return
       if (get().unsaved) await get().save()
+
+      // A PDF is opened by path. Its bytes go straight from the store to a
+      // viewer when one asks for them; reading two megabytes of binary here
+      // and decoding it as UTF-8 would fill the editor buffer with rubbish and
+      // the phone's memory with a copy of it.
+      if (!isNote(path)) {
+        if (!(await runtime.store.meta(path))) {
+          notice('error', `${path} is not stored on this device yet`)
+          return
+        }
+        set({ currentPath: path, content: '', unsaved: false, backlinks: [] })
+        return
+      }
+
       try {
         const data = await runtime.store.read(path)
         set({ currentPath: path, content: decodeText(data), unsaved: false })
@@ -635,7 +656,9 @@ export const useApp = create<AppState>()((set, get) => {
       if (!runtime) return undefined
       try {
         const data = await runtime.store.read(path)
-        return URL.createObjectURL(new Blob([data as BlobPart]))
+        // Typed, not bare: an <img> will sniff its own bytes, a PDF frame or a
+        // download will not, and hands back an empty page instead.
+        return URL.createObjectURL(new Blob([data as BlobPart], { type: mimeType(path) }))
       } catch {
         return undefined
       }
@@ -724,6 +747,10 @@ export const useApp = create<AppState>()((set, get) => {
 
     setQuery(query) {
       set({ query })
+    },
+
+    notify(kind, text) {
+      notice(kind, text)
     },
 
     dismissNotice(id) {

@@ -181,6 +181,44 @@ Not done: the properties table is read-only — editing a property means editing
 the YAML, which is one click away and is what Obsidian's source mode does too.
 There is no tag pane, and no renaming a tag across the vault.
 
+## PDFs (2026-09-06)
+
+The vault turned out to hold 102 of them — handouts, maps, player sheets —
+filed in `mundo/`, `assets/` and `players/*/` rather than in `attachments/`.
+They already synced and already sat in IndexedDB on every device. They were
+simply invisible: the list filtered to `.md`, and opening one landed on "that
+is an attachment, not a note". The bytes were paid for; only the reading was
+missing.
+
+| Question | Decision | Notes |
+|---|---|---|
+| Which viewer? | **The browser's own** | `pdf.js` would add several hundred KiB to what the service worker precaches — on every install, on a phone — to avoid one tap on the one platform that lacks a viewer. A frame over a blob URL costs nothing and is the same viewer the person already trusts. |
+| And where there is none? | **Hand it to one** | `navigator.pdfViewerEnabled` is the browser saying whether a frame will work. iOS says no — it renders a PDF as a whole page perfectly well and refuses to scroll one inside a page — so there the pane offers `Open` and `Save a copy` instead of a dead grey rectangle. WebKitGTK on Linux lands in the same place. |
+| Which files are listed? | **Notes and PDFs** | Not every attachment: `attachments/` fills with pasted screenshots that belong to the note embedding them, not to the list. A handout does not belong to a note — it is why the folder exists. |
+| `![[handout.pdf]]`? | **A card** | A scrolling document inside a scrolling note is poor on a desktop and unusable on a phone. The card carries the same `data-wikilink` every other link uses, so clicking it opens the file in the pane and nothing new had to learn about clicks. |
+| ⌘P and search? | **⌘P yes, search no** | A handout is looked up by its name exactly like a note. Reading the text *inside* a PDF is a different project — extraction, an index, and a second definition of what search means. |
+| What does opening one cost? | **Nothing it did not already** | `open()` used to read every file it was given and decode it as UTF-8, so opening a PDF filled the editor buffer with rubbish and memory with a copy of it. A file that is not a note is now opened by path, and its bytes go from the store to the viewer without passing through a string. |
+
+Two things this found on the way, both older than the feature:
+
+- **A blob had no type.** `blobUrl()` handed back `new Blob([bytes])` with no
+  MIME type at all. An `<img>` sniffs its own bytes and never noticed; a PDF
+  frame or a download would have shown an empty page.
+- **`[[carta.pdf]]` resolved to nothing.** The resolver appended `.md` to every
+  target that did not already end in it, so a link naming a file looked for
+  `carta.pdf.md`. Image embeds had been quietly relying on a fallback to the
+  raw path, which only worked at the vault root. A target carrying its own
+  extension is now tried as the file it says it is — after the note reading, so
+  a note called `Acto 3.1` still wins its own name.
+
+Renaming a PDF now offers to update the links to it, which meant the index had
+to keep what it deliberately throws away: a link to an attachment is still not
+a *mention* for the backlinks strip, but it is still a link, and a rename that
+broke a handout silently would be worse than the strip being noisy.
+
+Not done: no text extraction, so search does not see inside a PDF; no page
+number in a link (`[[handout.pdf#page=3]]`); and no thumbnail in the tree.
+
 ## Decisions taken while building
 
 - **Pure-Go SQLite** (`modernc.org/sqlite`) rather than `mattn/go-sqlite3`, so

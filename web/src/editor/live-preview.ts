@@ -3,9 +3,11 @@ import { StateField, type EditorState, type Extension, type Range } from '@codem
 import { Decoration, EditorView, type DecorationSet } from '@codemirror/view'
 import type { SyntaxNodeRef } from '@lezer/common'
 import { isFrontmatterFence } from '../state/frontmatter'
+import { isPdf } from '../state/notes'
 import {
   BulletWidget,
   CheckboxWidget,
+  FileCardWidget,
   HorizontalRuleWidget,
   ImageWidget,
   PropertiesWidget,
@@ -219,6 +221,12 @@ function build(state: EditorState, config: LivePreviewConfig): Built {
         })
         return false
       }
+      if (isPdf(target)) {
+        replace(node.from, node.to, {
+          widget: new FileCardWidget(target, display ?? nameOf(target), 'PDF'),
+        })
+        return false
+      }
       // A non-image embed stays a link rather than pretending to inline a note.
       hide(node.from, node.from + 3)
       mark(node.from + 3, node.to - 2, 'cm-wikilink', { 'data-wikilink': target })
@@ -352,6 +360,11 @@ function clickHandler(config: LivePreviewConfig): Extension {
       return false
     },
   })
+}
+
+/** The file's own name, which is what a card should say rather than its path. */
+function nameOf(target: string): string {
+  return target.slice(target.lastIndexOf('/') + 1)
 }
 
 /**

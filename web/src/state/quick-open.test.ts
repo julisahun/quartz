@@ -44,4 +44,12 @@ describe('rankNotes', () => {
     expect(paths('zzz', vault('acero.md'))).toEqual([])
     expect(paths('logo', vault('attachments/logo.png'))).toEqual([])
   })
+
+  it('finds a PDF by name, and says that is what it is', () => {
+    const files = vault('runs/last/players/abraxas/abraxas-guia.pdf', 'pnj/abraxas.md')
+    const [first] = rankNotes('abraxasguia', files)
+    expect(first.path).toBe('runs/last/players/abraxas/abraxas-guia.pdf')
+    expect(first.pdf).toBe(true)
+    expect(rankNotes('abraxas', files).every((h) => h.path.includes('abraxas'))).toBe(true)
+  })
 })

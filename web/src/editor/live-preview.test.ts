@@ -230,6 +230,27 @@ describe('live preview', () => {
     expect(view!.dom.querySelectorAll('.cm-code-last')).toHaveLength(1)
   })
 
+  it('renders an embedded PDF as a card, not as a picture of one', () => {
+    const doc = 'the handout:\n\n![[assets/carta-tulio-agua.pdf]]\n\nafter'
+    const out = render(doc, doc.length)
+    const card = view!.dom.querySelector('.cm-file-card')
+    expect(card).not.toBeNull()
+    // The card says the file's own name, and clicking it goes through the same
+    // attribute every other link in the editor uses.
+    expect(card!.querySelector('.cm-file-name')?.textContent).toBe('carta-tulio-agua.pdf')
+    expect(card!.getAttribute('data-wikilink')).toBe('assets/carta-tulio-agua.pdf')
+    expect(out).not.toContain('![[')
+  })
+
+  it('leaves a plain link to a PDF a link', () => {
+    const doc = 'see [[assets/carta.pdf]] for it\n\nafter'
+    render(doc, doc.length)
+    expect(view!.dom.querySelector('.cm-file-card')).toBeNull()
+    expect(view!.dom.querySelector('[data-wikilink]')?.getAttribute('data-wikilink')).toBe(
+      'assets/carta.pdf',
+    )
+  })
+
   it('decorates what the parser only reaches later', () => {
     // CodeMirror parses a screenful at a time and finishes the rest in the
     // background. The transaction carrying the finished tree changes neither

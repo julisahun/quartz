@@ -6,15 +6,19 @@
  * folders deep, the path is most of what you remember. This is a switcher, not
  * a search: it never opens a file to look inside it, which is what keeps it
  * instant and what keeps it different from the box in the sidebar.
+ *
+ * It offers PDFs as well as notes, since a handout is looked up by its name in
+ * exactly the same way. Nothing here reads what is inside either of them.
  */
 
 import type { FileMeta } from '../vault/types'
-import { folderOf, isNote, noteTitle } from './notes'
+import { folderOf, isOpenable, isPdf, noteTitle } from './notes'
 
 export interface QuickHit {
   path: string
   title: string
   folder: string
+  pdf: boolean
   /** Offsets into `path` that the query matched, for highlighting. */
   matches: number[]
 }
@@ -26,7 +30,7 @@ const DEFAULT_LIMIT = 40
  * touched most recently, which is nearly always where you were going.
  */
 export function rankNotes(query: string, files: FileMeta[], limit = DEFAULT_LIMIT): QuickHit[] {
-  const notes = files.filter((f) => isNote(f.path))
+  const notes = files.filter((f) => isOpenable(f.path))
   // Whitespace is not a separator, it is noise: "marea baja" should find
   // "marea-baja" without anyone thinking about it.
   const needle = query.toLowerCase().replace(/\s+/g, '')
@@ -52,7 +56,7 @@ export function rankNotes(query: string, files: FileMeta[], limit = DEFAULT_LIMI
 }
 
 function hit(path: string, matches: number[]): QuickHit {
-  return { path, title: noteTitle(path), folder: folderOf(path), matches }
+  return { path, title: noteTitle(path), folder: folderOf(path), pdf: isPdf(path), matches }
 }
 
 /** What a note scores: the better of matching its name and matching its path. */

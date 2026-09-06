@@ -2,7 +2,7 @@ import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { useEffect, useRef, useState } from 'react'
 import { editorExtensions } from '../editor/setup'
-import { resolveWikilink, pathForTitle, isNote, noteTitle } from '../state/notes'
+import { resolveWikilink, pathForTitle, isNote, isPdf, mimeType, noteTitle } from '../state/notes'
 import { useApp } from '../state/store'
 import { promptDelete, promptRename } from './actions'
 import { AppBar } from './AppBar'
@@ -11,6 +11,7 @@ import { openMenu } from './dialogs'
 import { EditorToolbar } from './EditorToolbar'
 import { ChevronLeft, Ellipsis } from './icons'
 import { useIsPhone } from './media'
+import { PdfView } from './PdfView'
 
 interface Props {
   livePreview: boolean
@@ -55,11 +56,17 @@ export function NoteEditor({ livePreview, onToggleLivePreview, onBack }: Props) 
           const found = resolveWikilink(target, state.files)
           if (found) {
             void state.open(found)
-          } else {
-            // Following a link to a note that does not exist creates it, which
-            // is how a vault actually grows.
-            void state.createNote(pathForTitle(target).replace(/\.md$/, ''))
+            return
           }
+          // A link naming a file — carta.pdf, diagram.png — meant that file.
+          // Creating carta.pdf.md instead would be a note nobody asked for.
+          if (!isNote(target) && mimeType(target) !== 'application/octet-stream') {
+            state.notify('error', `${target} is not in this vault`)
+            return
+          }
+          // Following a link to a note that does not exist creates it, which
+          // is how a vault actually grows.
+          void state.createNote(pathForTitle(target).replace(/\.md$/, ''))
         },
         openUrl: (url) => window.open(url, '_blank', 'noopener,noreferrer'),
         openTag: (tag) => {
@@ -103,11 +110,16 @@ export function NoteEditor({ livePreview, onToggleLivePreview, onBack }: Props) 
   function noteMenu() {
     if (!currentPath) return
     void openMenu(noteTitle(currentPath), [
-      {
-        label: livePreview ? 'Source view' : 'Live preview',
-        hint: livePreview ? 'Show the markdown as written' : 'Hide the markup while writing',
-        run: onToggleLivePreview,
-      },
+      // Nothing to preview in a PDF, and nothing to write in it either.
+      ...(isNote(currentPath)
+        ? [
+            {
+              label: livePreview ? 'Source view' : 'Live preview',
+              hint: livePreview ? 'Show the markdown as written' : 'Hide the markup while writing',
+              run: onToggleLivePreview,
+            },
+          ]
+        : []),
       { label: 'Rename…', run: () => void promptRename(currentPath) },
       {
         label: 'Delete',
@@ -124,6 +136,8 @@ export function NoteEditor({ livePreview, onToggleLivePreview, onBack }: Props) 
         <p>Pick a note, or make one.</p>
       </div>
     )
+  } else if (isPdf(currentPath)) {
+    body = <PdfView path={currentPath} />
   } else if (!isNote(currentPath)) {
     body = (
       <div className="editor-empty">
