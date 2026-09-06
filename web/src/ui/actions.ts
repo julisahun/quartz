@@ -67,6 +67,21 @@ export async function promptDelete(path: string): Promise<boolean> {
   return true
 }
 
+/**
+ * Forgetting a folder is not deleting it, and the wording has to make that
+ * obvious: the notes are on disk where the user put them, untouched.
+ */
+export async function promptForgetFolder(id: string): Promise<void> {
+  const folder = useApp.getState().vaults.find((v) => v.id === id)
+  if (!folder) return
+  const ok = await askConfirm({
+    title: `Stop listing ${folder.name}?`,
+    body: 'The folder and every note in it stay exactly where they are on disk. You can open it again whenever you like.',
+    confirmLabel: 'Forget folder',
+  })
+  if (ok) await useApp.getState().forgetFolder(id)
+}
+
 export async function promptSignOut(): Promise<void> {
   const ok = await askConfirm({
     title: 'Sign out?',

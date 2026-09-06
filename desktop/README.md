@@ -19,12 +19,31 @@ atomic writes, sha256 — so a file means the same thing in all three places.
 
 | | |
 |---|---|
-| Vaults | `~/Documents/quartz/<vault id>` by default; change `vaults` in `settings.json` |
+| Synced vaults | `~/Documents/quartz/<vault id>` by default; change `vaults` in `settings.json` |
+| Opened folders | wherever you picked them; recorded in `local` in `settings.json` |
 | Settings | the app config directory (`~/Library/Application Support/uk.sigint-pm.quartz` on macOS) |
 | Sync state | `sync-state-<vault>.json` beside the settings — **never inside a vault** |
 
 Each vault the account can open becomes a folder of its own, named after the
 vault id the server uses, so a shared vault and a private one never mix.
+
+## Opening a folder from disk
+
+The `+` beside the vault switcher opens any folder as a vault of its own — what
+Obsidian calls "open folder as vault". It belongs to no account, syncs with
+nothing, and is listed only on this machine, so it works with the Pi switched
+off and with no account at all: the login screen offers **Open a folder
+instead**, and signing out leaves it open.
+
+- Nothing is uploaded, and the server never learns the folder exists. The sync
+  light says `local folder` rather than pretending to be up to date.
+- No safety net either. A synced vault is a git repo the server commits to; a
+  folder opened from disk is worth exactly what your own backups make of it.
+- **forget folder** takes it off the list and deletes nothing.
+- The id is derived from the path, so opening the same folder twice reopens it
+  instead of listing it again.
+- A folder under the vaults base is refused: it is already a synced vault, and
+  two stores writing one directory would fight.
 
 ## Auth
 

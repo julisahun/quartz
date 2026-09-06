@@ -2,14 +2,20 @@ import { create } from 'zustand'
 import { ApiError, HttpApi, OfflineError, type SearchHit, type VaultSummary } from '../api/client'
 import { SyncEngine, type SyncNotice } from '../sync/engine'
 import { createVaultStore } from '../vault'
-import { isDesktop } from '../vault/tauri-bridge'
+import {
+  forgetLocalVault,
+  isDesktop,
+  localVaults,
+  pickLocalVault,
+} from '../vault/tauri-bridge'
 import { decodeText, encodeText, type FileMeta, type VaultStore } from '../vault/types'
 import { LinkIndex, retargetLinks, sameBacklinks, type Backlink } from './links'
 import { buildResolver, isNote, noteTitle, pathForTitle, uniquePath } from './notes'
 import { persisted } from './persist'
 import { detectEviction, requestPersistence } from './storage'
+import { chooseVault, isLocal, mergeVaults, type LocalVaultSummary, type Vault } from './vaults'
 
-export type SyncState = 'idle' | 'syncing' | 'offline' | 'needs-login' | 'error'
+export type SyncState = 'idle' | 'syncing' | 'offline' | 'needs-login' | 'error' | 'local'
 
 export interface Notice {
   id: number
@@ -32,7 +38,8 @@ const api = new HttpApi(apiBase, desktop ? persisted.token() : undefined, (token
 /** One vault's local half: where its files live, what syncs them, what links to what. */
 interface Runtime {
   store: VaultStore
-  engine: SyncEngine
+  /** Absent for a folder opened from disk: there is nothing to sync it with. */
+  engine?: SyncEngine
   links: LinkIndex
 }
 
@@ -50,7 +57,7 @@ interface AppState {
   phase: 'loading' | 'login' | 'ready'
   user: string
   device: string
-  vaults: VaultSummary[]
+  vaults: Vault[]
   currentVault: string | undefined
   files: FileMeta[]
   currentPath: string | undefined
@@ -67,6 +74,10 @@ interface AppState {
   login(user: string, password: string): Promise<void>
   logout(): Promise<void>
   selectVault(id: string): Promise<void>
+  /** Picks a folder on disk and opens it as a vault of its own. */
+  openFolder(): Promise<void>
+  /** Stops listing a folder. Never touches the folder or the notes in it. */
+  forgetFolder(id: string): Promise<void>
   open(path: string): Promise<void>
   edit(text: string): void
   save(): Promise<void>
@@ -87,14 +98,33 @@ export const useApp = create<AppState>()((set, get) => {
     set((s) => ({ notices: [...s.notices, { id: ++noticeId, kind, text }] }))
   }
 
+  /** True for a folder opened from disk, which belongs to no account. */
+  const isLocalVault = (id: string): boolean =>
+    get().vaults.some((v) => v.id === id && v.kind === 'local')
+
+  /** The sync light for the open vault: a folder never syncs, whatever else is wrong. */
+  const syncStateFor = (fallback: SyncState): SyncState => {
+    const id = get().currentVault
+    return id && isLocalVault(id) ? 'local' : fallback
+  }
+
   /** The local half of a vault, created the first time it is needed. */
   const runtimeFor = (vaultId: string): Runtime => {
     const { user, device } = get()
-    const key = `${user}/${vaultId}`
+    const local = isLocalVault(vaultId)
+    // A folder is the same folder whoever is signed in, so it is keyed by
+    // itself. A synced vault is keyed by account too: two accounts on one
+    // browser must never share a local store.
+    const key = local ? `local/${vaultId}` : `${user}/${vaultId}`
     const existing = runtimes.get(key)
     if (existing) return existing
 
     const store = createVaultStore(user, vaultId)
+    if (local) {
+      const runtime = { store, links: new LinkIndex() }
+      runtimes.set(key, runtime)
+      return runtime
+    }
     const engine = new SyncEngine(store, api.vault(vaultId), {
       device,
       onNotice: (n) => {
@@ -119,13 +149,15 @@ export const useApp = create<AppState>()((set, get) => {
   }
 
   const refreshFiles = async () => {
+    const id = get().currentVault
     const runtime = current()
-    if (!runtime) {
+    if (!id || !runtime) {
       set({ files: [], pending: 0, backlinks: [] })
       return
     }
     const files = await runtime.store.list()
-    const pending = (await runtime.store.pending()).length
+    // Nothing is ever queued for a folder on disk: it is already where it goes.
+    const pending = isLocalVault(id) ? 0 : (await runtime.store.pending()).length
     set({ files, pending })
     scheduleBacklinks()
   }
@@ -172,18 +204,14 @@ export const useApp = create<AppState>()((set, get) => {
     syncTimer = setTimeout(() => void get().syncNow(), delay)
   }
 
-  /** Picks which vault to open: the last one used, else the user's own. */
-  const pickVault = (vaults: VaultSummary[], user: string): string | undefined => {
-    const last = persisted.lastVault()
-    if (last && vaults.some((v) => v.id === last)) return last
-    return (vaults.find((v) => v.kind === 'private' && v.owner === user) ?? vaults[0])?.id
-  }
-
   const adoptIdentity = async (user: string, vaults: VaultSummary[]) => {
     persisted.setUser(user)
     persisted.setVaults(vaults)
-    set({ user, vaults })
-    const chosen = pickVault(vaults, user)
+    // The folders opened on this device are not the server's to list, and
+    // outlive any answer it gives.
+    const merged = mergeVaults(vaults, get().vaults.filter(isLocal))
+    set({ user, vaults: merged })
+    const chosen = chooseVault(merged, user, persisted.lastVault())
     if (chosen) await get().selectVault(chosen)
   }
 
@@ -207,16 +235,19 @@ export const useApp = create<AppState>()((set, get) => {
       const device = persisted.device()
       const cachedUser = persisted.user() ?? ''
       const cachedVaults = persisted.vaults()
-      set({ device, user: cachedUser, vaults: cachedVaults })
+      const folders = (await localVaults()).map(
+        (f): LocalVaultSummary => ({ ...f, kind: 'local' }),
+      )
+      set({ device, user: cachedUser, vaults: mergeVaults(cachedVaults, folders) })
       if (!desktop) void requestPersistence()
 
       // An offline launch must never bounce you to a login you cannot reach:
-      // with a vault cached locally, go straight in and sort the session out
-      // afterwards.
-      const hasLocalVault = cachedUser !== '' && cachedVaults.length > 0
-      if (hasLocalVault) {
+      // with something already on this device — a synced vault, or a folder
+      // opened from disk — go straight in and sort the session out afterwards.
+      const openable = (cachedUser !== '' && cachedVaults.length > 0) || folders.length > 0
+      if (openable) {
         set({ phase: 'ready' })
-        const chosen = pickVault(cachedVaults, cachedUser)
+        const chosen = chooseVault(get().vaults, cachedUser, persisted.lastVault())
         if (chosen) await get().selectVault(chosen)
       }
 
@@ -226,11 +257,12 @@ export const useApp = create<AppState>()((set, get) => {
       } catch {
         // The server is unreachable. With a local vault that is not an error:
         // read and write offline, and sync when the network comes back.
-        set({ sync: 'offline', phase: hasLocalVault ? 'ready' : 'login' })
+        set({ sync: syncStateFor('offline'), phase: openable ? 'ready' : 'login' })
         return
       }
       if (!identity) {
-        set(hasLocalVault ? { sync: 'needs-login' } : { phase: 'login' })
+        // Sitting in a folder from disk, there is no session to miss.
+        set(openable ? { sync: syncStateFor('needs-login') } : { phase: 'login' })
         return
       }
       set({ phase: 'ready' })
@@ -255,17 +287,27 @@ export const useApp = create<AppState>()((set, get) => {
         /* offline is fine; the cookie dies with the session anyway */
       }
       persisted.clearIdentity()
-      runtimes.clear()
+      const folders = get().vaults.filter(isLocal)
+      for (const key of [...runtimes.keys()]) {
+        if (!key.startsWith('local/')) runtimes.delete(key)
+      }
       set({
         phase: 'login',
         sync: 'idle',
-        vaults: [],
+        vaults: folders,
         currentVault: undefined,
         files: [],
         currentPath: undefined,
         content: '',
+        unsaved: false,
         backlinks: [],
       })
+      // A folder from disk was never the account's, so signing out does not
+      // close it — there is still somewhere to be.
+      if (folders.length > 0) {
+        set({ phase: 'ready' })
+        await get().selectVault(folders[0].id)
+      }
     },
 
     async selectVault(id) {
@@ -275,12 +317,72 @@ export const useApp = create<AppState>()((set, get) => {
       set({ currentVault: id, currentPath: undefined, content: '', unsaved: false, backlinks: [] })
 
       const runtime = runtimeFor(id)
-      if (await detectEviction(runtime.store)) {
+      // Eviction is a browser-storage problem. A folder on disk cannot be
+      // cleared out from under the app, and has nowhere to re-download from.
+      if (!isLocalVault(id) && (await detectEviction(runtime.store))) {
         notice('info', 'This device had been cleared by the browser. Re-downloading your notes…')
       }
-      await refreshFiles()
+      try {
+        await refreshFiles()
+      } catch (err) {
+        // A folder that has been moved, renamed or unplugged. Saying so beats
+        // an empty note list, which reads as "your notes are gone".
+        const name = get().vaults.find((v) => v.id === id)?.name ?? id
+        set({ files: [], pending: 0, backlinks: [] })
+        notice('error', `${name} could not be read: ${String(err)}`)
+        return
+      }
       await openFirstNote()
       scheduleSync(0)
+    },
+
+    async openFolder() {
+      let picked
+      try {
+        picked = await pickLocalVault()
+      } catch (err) {
+        // The shell refuses a folder it already manages as a synced vault.
+        notice('error', String(err))
+        return
+      }
+      if (!picked) return // the picker was dismissed
+
+      const folder: LocalVaultSummary = { ...picked, kind: 'local' }
+      const server = get().vaults.filter((v): v is VaultSummary => !isLocal(v))
+      const folders = get().vaults.filter(isLocal).filter((v) => v.id !== folder.id)
+      set({ vaults: mergeVaults(server, [...folders, folder]) })
+
+      // mergeVaults drops a folder whose id a server vault already answers to.
+      // Opening it anyway would put a sync engine over a private folder.
+      if (!isLocalVault(folder.id)) {
+        notice('error', `${folder.name} could not be opened: a vault on the server has its id`)
+        return
+      }
+      await get().selectVault(folder.id)
+    },
+
+    async forgetFolder(id) {
+      const folder = get().vaults.find((v) => v.id === id)
+      if (!folder || !isLocal(folder)) return
+      await forgetLocalVault(id)
+      runtimes.delete(`local/${id}`)
+
+      const rest = get().vaults.filter((v) => v.id !== id)
+      set({ vaults: rest })
+      if (get().currentVault === id) {
+        set({
+          currentVault: undefined,
+          currentPath: undefined,
+          content: '',
+          unsaved: false,
+          files: [],
+          backlinks: [],
+        })
+        const next = chooseVault(rest, get().user)
+        if (next) await get().selectVault(next)
+        else set({ phase: 'login' })
+      }
+      notice('info', `${folder.name} is no longer listed here. The folder itself is untouched.`)
     },
 
     async open(path) {
@@ -423,33 +525,40 @@ export const useApp = create<AppState>()((set, get) => {
         syncAgain = true
         return
       }
+      // A folder from disk has nothing to sync with; the account's vaults are
+      // still worth keeping fresh behind it.
+      const open = isLocalVault(currentVault) ? undefined : runtimeFor(currentVault).engine
       syncing = true
-      set({ sync: 'syncing' })
+      set({ sync: open ? 'syncing' : 'local' })
       try {
         // The open vault first, so what you are looking at is current soonest;
         // the others follow so a switch is instant.
-        const stats = await runtimeFor(currentVault).engine.sync()
-        set({ sync: 'idle', lastSyncedAt: Date.now() })
-        await refreshFiles()
+        if (open) {
+          const stats = await open.sync()
+          set({ sync: 'idle', lastSyncedAt: Date.now() })
+          await refreshFiles()
 
-        // If the open note changed underneath us, show the new bytes — but
-        // never over unsaved typing.
-        const { currentPath, unsaved } = get()
-        if (currentPath && !unsaved && stats.pulled + stats.conflicts > 0) {
-          const runtime = runtimeFor(currentVault)
-          const meta = await runtime.store.meta(currentPath)
-          if (!meta) {
-            set({ currentPath: undefined, content: '', backlinks: [] })
-          } else {
-            const text = decodeText(await runtime.store.read(currentPath))
-            if (text !== get().content) set({ content: text })
+          // If the open note changed underneath us, show the new bytes — but
+          // never over unsaved typing.
+          const { currentPath, unsaved } = get()
+          if (currentPath && !unsaved && stats.pulled + stats.conflicts > 0) {
+            const runtime = runtimeFor(currentVault)
+            const meta = await runtime.store.meta(currentPath)
+            if (!meta) {
+              set({ currentPath: undefined, content: '', backlinks: [] })
+            } else {
+              const text = decodeText(await runtime.store.read(currentPath))
+              if (text !== get().content) set({ content: text })
+            }
           }
         }
 
         for (const vault of vaults) {
           if (vault.id === currentVault) continue
+          const engine = runtimeFor(vault.id).engine
+          if (!engine) continue
           try {
-            await runtimeFor(vault.id).engine.sync()
+            await engine.sync()
           } catch (err) {
             if (err instanceof OfflineError) break
             if (err instanceof ApiError && err.isAuth) break
@@ -480,10 +589,13 @@ export const useApp = create<AppState>()((set, get) => {
       const q = query.trim()
       const vaultId = get().currentVault
       if (!q || !vaultId) return []
+      const { store } = runtimeFor(vaultId)
+      // No index on the server for a folder it has never seen: scan it here.
+      if (isLocalVault(vaultId)) return localSearch(q, get().files, store)
       try {
         return await api.vault(vaultId).search(q)
       } catch {
-        return localSearch(q, get().files, runtimeFor(vaultId).store)
+        return localSearch(q, get().files, store)
       }
     },
 

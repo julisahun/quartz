@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { SearchHit } from '../api/client'
 import { useApp } from '../state/store'
 import { folderOf, isConflictCopy, isNote, noteTitle } from '../state/notes'
-import { promptDelete, promptNewNote, promptSignOut } from './actions'
+import { vaultHint } from '../state/vaults'
+import { isDesktop } from '../vault/tauri-bridge'
+import { promptDelete, promptForgetFolder, promptNewNote, promptSignOut } from './actions'
 import { AppBar } from './AppBar'
 import { openMenu } from './dialogs'
 import { usePullToRefresh, useSwipeToReveal } from './gestures'
@@ -28,6 +30,8 @@ export function Sidebar({ onNavigate, inert }: Props) {
   const search = useApp((s) => s.search)
   const syncNow = useApp((s) => s.syncNow)
   const selectVault = useApp((s) => s.selectVault)
+  const openFolder = useApp((s) => s.openFolder)
+  const user = useApp((s) => s.user)
   const isPhone = useIsPhone()
 
   const [query, setQuery] = useState('')
@@ -77,16 +81,21 @@ export function Sidebar({ onNavigate, inert }: Props) {
       'Vaults',
       vaults.map((vault) => ({
         label: vault.name,
-        hint: vault.kind === 'shared' ? `shared · ${vault.owner}` : 'private',
+        hint: vaultHint(vault, user),
         run: () => void selectVault(vault.id),
       })),
     )
   }
 
   function listMenu() {
+    const open = vaults.find((v) => v.id === currentVault)
     void openMenu(vaultName(), [
       ...(vaults.length > 1 ? [{ label: 'Switch vault…', run: vaultMenu }] : []),
-      { label: 'Sync now', run: () => void syncNow() },
+      // Only the desktop shell has folders to open.
+      ...(isDesktop() ? [{ label: 'Open folder…', run: () => void openFolder() }] : []),
+      ...(open?.kind === 'local'
+        ? [{ label: 'Forget this folder', hint: 'Leaves the notes on disk', run: () => void promptForgetFolder(open.id) }]
+        : [{ label: 'Sync now', run: () => void syncNow() }]),
       { label: 'Sign out', run: () => void promptSignOut() },
     ])
   }

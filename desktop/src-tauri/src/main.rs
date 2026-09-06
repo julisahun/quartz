@@ -10,8 +10,9 @@ mod vault;
 use std::sync::Mutex;
 
 use tauri::Manager;
+use tauri_plugin_dialog::DialogExt;
 
-use vault::{Settings, VaultState};
+use vault::{LocalVault, Settings, VaultState};
 
 #[tauri::command]
 fn vaults_base(state: tauri::State<'_, VaultState>) -> Result<String, String> {
@@ -26,6 +27,38 @@ fn set_vaults_base(path: String, state: tauri::State<'_, VaultState>) -> Result<
 #[tauri::command]
 fn vault_root(vault: String, state: tauri::State<'_, VaultState>) -> Result<String, String> {
     Ok(state.root(&vault)?.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn local_vaults(state: tauri::State<'_, VaultState>) -> Result<Vec<LocalVault>, String> {
+    state.local_vaults()
+}
+
+/// Asks for a folder and opens it as a vault. `None` means the picker was
+/// dismissed, which is not an error worth surfacing.
+///
+/// The dialog is opened from here rather than from the web app so the shell
+/// keeps needing no plugin permissions in the webview: the frontend asks for a
+/// vault, not for filesystem access.
+///
+/// `(async)` is load-bearing: without it a command runs on the main thread,
+/// and a blocking picker there deadlocks against the event loop it is waiting
+/// on. This marker moves the body to the thread pool instead.
+#[tauri::command(async)]
+fn pick_local_vault(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, VaultState>,
+) -> Result<Option<LocalVault>, String> {
+    let Some(picked) = app.dialog().file().blocking_pick_folder() else {
+        return Ok(None);
+    };
+    let path = picked.into_path().map_err(|e| e.to_string())?;
+    state.add_local(&path).map(Some)
+}
+
+#[tauri::command]
+fn forget_local_vault(id: String, state: tauri::State<'_, VaultState>) -> Result<(), String> {
+    state.forget_local(&id)
 }
 
 #[tauri::command]
@@ -77,6 +110,7 @@ fn state_write(
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let config_dir = app
                 .path()
@@ -94,6 +128,9 @@ fn main() {
             vaults_base,
             set_vaults_base,
             vault_root,
+            local_vaults,
+            pick_local_vault,
+            forget_local_vault,
             vault_list,
             vault_read,
             vault_write,

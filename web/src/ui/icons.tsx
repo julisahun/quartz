@@ -29,6 +29,13 @@ export const ChevronLeft = () => (
   </Svg>
 )
 
+export const FolderPlus = () => (
+  <Svg>
+    <path d="M1.75 12.5v-9h4l1.5 2h7v7a1 1 0 0 1-1 1h-10.5a1 1 0 0 1-1-1Z" />
+    <path d="M8 7.5v4M6 9.5h4" />
+  </Svg>
+)
+
 export const ChevronRight = () => (
   <Svg>
     <path d="M6 3.5 10.5 8 6 12.5" />

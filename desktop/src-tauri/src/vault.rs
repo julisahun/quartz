@@ -24,11 +24,25 @@ pub struct FileMeta {
     pub mtime: i64,
 }
 
+/// A folder the user opened as a vault. It belongs to no account and never
+/// syncs: the folder on disk is the whole of it, which is what makes the app
+/// usable with no server at all.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct LocalVault {
+    pub id: String,
+    pub name: String,
+    pub path: PathBuf,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Settings {
     /// Vaults live side by side under this directory, one folder each, named
     /// after the vault id the server uses.
     pub vaults: PathBuf,
+    /// Folders opened from disk, each at a path of its own choosing. Defaulted
+    /// so a settings file written before local vaults existed still loads.
+    #[serde(default)]
+    pub local: Vec<LocalVault>,
 }
 
 impl Settings {
@@ -43,6 +57,7 @@ impl Settings {
         // The default is a folder the user can also open in Obsidian.
         let settings = Settings {
             vaults: home.join("Documents").join("quartz"),
+            local: Vec::new(),
         };
         settings.save(config_dir)?;
         Ok(settings)
@@ -60,16 +75,79 @@ pub struct VaultState {
 }
 
 impl VaultState {
-    /// The folder holding one vault. The id comes from the server and becomes
-    /// a directory name, so it is checked as strictly as any other path input.
+    /// The folder holding one vault. A server vault is a directory under the
+    /// base named after its id, so the id is checked as strictly as any other
+    /// path input; a local vault is wherever the user pointed at.
     pub fn root(&self, vault: &str) -> Result<PathBuf, String> {
         if !valid_vault_id(vault) {
             return Err(format!("invalid vault id: {vault}"));
         }
-        let base = self.settings.lock().map_err(|_| "settings lock")?.vaults.clone();
-        let root = base.join(vault);
+        let settings = self.settings.lock().map_err(|_| "settings lock")?;
+        if let Some(local) = settings.local.iter().find(|v| v.id == vault) {
+            let path = local.path.clone();
+            // Never created here: a folder that has been moved or unplugged is
+            // an error worth showing, not an empty vault worth inventing.
+            if !path.is_dir() {
+                return Err(format!("{} is no longer on disk", path.display()));
+            }
+            return Ok(path);
+        }
+        let root = settings.vaults.join(vault);
+        drop(settings);
         fs::create_dir_all(&root).map_err(|e| e.to_string())?;
         Ok(root)
+    }
+
+    pub fn local_vaults(&self) -> Result<Vec<LocalVault>, String> {
+        Ok(self.settings.lock().map_err(|_| "settings lock")?.local.clone())
+    }
+
+    /// Opens a folder as a vault. Adding the same folder twice returns what is
+    /// already there rather than a second entry over the same files.
+    pub fn add_local(&self, path: &Path) -> Result<LocalVault, String> {
+        if !path.is_dir() {
+            return Err(format!("{} is not a folder", path.display()));
+        }
+        let path = fs::canonicalize(path).map_err(|e| e.to_string())?;
+        let mut settings = self.settings.lock().map_err(|_| "settings lock")?;
+
+        // A folder under the base is already a synced vault's folder. Opening
+        // it locally as well would put two stores over one directory.
+        let base = fs::canonicalize(&settings.vaults).unwrap_or_else(|_| settings.vaults.clone());
+        if path.starts_with(&base) {
+            return Err("that folder is already a synced vault".into());
+        }
+
+        let id = local_id(&path);
+        if let Some(existing) = settings.local.iter().find(|v| v.id == id) {
+            return Ok(existing.clone());
+        }
+        let vault = LocalVault {
+            id,
+            name: path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "vault".to_string()),
+            path,
+        };
+        settings.local.push(vault.clone());
+        settings.save(&self.config_dir)?;
+        Ok(vault)
+    }
+
+    /// Forgets a local vault. The folder and every note in it stay exactly
+    /// where they are — only quartz's bookkeeping goes.
+    pub fn forget_local(&self, id: &str) -> Result<(), String> {
+        let mut settings = self.settings.lock().map_err(|_| "settings lock")?;
+        let before = settings.local.len();
+        settings.local.retain(|v| v.id != id);
+        if settings.local.len() == before {
+            return Err(format!("no local vault {id}"));
+        }
+        settings.save(&self.config_dir)?;
+        drop(settings);
+        let _ = fs::remove_file(self.config_dir.join(format!("sync-state-{id}.json")));
+        Ok(())
     }
 
     pub fn base(&self) -> Result<PathBuf, String> {
@@ -218,6 +296,13 @@ fn valid_vault_id(id: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
 }
 
+/// A stable id for a folder opened from disk: the same path always derives the
+/// same id, so opening a folder twice reopens it instead of duplicating it.
+/// The prefix keeps it out of the way of the ids the server hands out.
+fn local_id(path: &Path) -> String {
+    format!("local-{}", &hash_bytes(path.to_string_lossy().as_bytes())[..12])
+}
+
 fn clean_path(rel: &str) -> Result<String, String> {
     if rel.is_empty() || rel.contains('\0') || rel.contains('\\') || rel.starts_with('/') {
         return Err("invalid path".into());
@@ -292,6 +377,84 @@ mod tests {
         }
         for good in ["juli", "casa", "maria.lopez", "shared-vault_2"] {
             assert!(valid_vault_id(good), "rejected {good}");
+        }
+    }
+
+    #[test]
+    fn local_ids_are_stable_and_valid() {
+        let a = local_id(Path::new("/Users/juli/Documents/Obsidian"));
+        assert_eq!(a, local_id(Path::new("/Users/juli/Documents/Obsidian")));
+        assert_ne!(a, local_id(Path::new("/Users/juli/Documents/Work")));
+        assert!(valid_vault_id(&a), "{a} is not usable as a vault id");
+    }
+
+    #[test]
+    fn a_local_vault_resolves_to_the_folder_that_was_picked() {
+        let dirs = scratch("resolves");
+        let picked = dirs.join("Notes of mine");
+        fs::create_dir_all(&picked).unwrap();
+        let state = state_in(&dirs);
+
+        let vault = state.add_local(&picked).unwrap();
+        assert_eq!(vault.name, "Notes of mine");
+        assert_eq!(fs::canonicalize(state.root(&vault.id).unwrap()).unwrap(), fs::canonicalize(&picked).unwrap());
+
+        // Adding it again is the same vault, not a second one over one folder.
+        assert_eq!(state.add_local(&picked).unwrap().id, vault.id);
+        assert_eq!(state.local_vaults().unwrap().len(), 1);
+
+        // Forgetting leaves every note where it was.
+        fs::write(picked.join("a.md"), b"# a").unwrap();
+        state.forget_local(&vault.id).unwrap();
+        assert!(state.local_vaults().unwrap().is_empty());
+        assert!(picked.join("a.md").exists());
+        fs::remove_dir_all(&dirs).ok();
+    }
+
+    #[test]
+    fn refuses_a_folder_that_is_already_a_synced_vault() {
+        let dirs = scratch("refuses");
+        let state = state_in(&dirs);
+        let inside = state.root("juli").unwrap(); // created under the base
+        assert!(state.add_local(&inside).is_err());
+        assert!(state.add_local(&dirs.join("nope")).is_err(), "accepted a missing folder");
+        fs::remove_dir_all(&dirs).ok();
+    }
+
+    /// A vault whose folder has been moved away must say so rather than come
+    /// back empty, which would read as "all your notes are gone".
+    #[test]
+    fn a_missing_folder_is_an_error_not_an_empty_vault() {
+        let dirs = scratch("missing");
+        let picked = dirs.join("Gone");
+        fs::create_dir_all(&picked).unwrap();
+        let state = state_in(&dirs);
+        let vault = state.add_local(&picked).unwrap();
+        fs::remove_dir_all(&picked).unwrap();
+        assert!(state.root(&vault.id).is_err());
+        assert!(state.list(&vault.id).is_err());
+        fs::remove_dir_all(&dirs).ok();
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("quartz-{name}-{nanos}"));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A state whose config and vault base both sit under one scratch folder.
+    fn state_in(dir: &Path) -> VaultState {
+        fs::create_dir_all(dir.join("config")).unwrap();
+        VaultState {
+            config_dir: dir.join("config"),
+            settings: Mutex::new(Settings {
+                vaults: dir.join("base"),
+                local: Vec::new(),
+            }),
         }
     }
 

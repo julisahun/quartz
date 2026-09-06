@@ -15,6 +15,33 @@ function tauri(): TauriApi {
   return internals
 }
 
+/** A folder opened from disk, as the shell records it. */
+export interface LocalVaultEntry {
+  id: string
+  name: string
+  path: string
+}
+
+/** The folders opened as vaults on this device. None, in a browser. */
+export async function localVaults(): Promise<LocalVaultEntry[]> {
+  if (!isDesktop()) return []
+  return tauri().invoke<LocalVaultEntry[]>('local_vaults')
+}
+
+/**
+ * Asks the shell for a folder and opens it as a vault. Undefined means the
+ * picker was dismissed. The dialog belongs to the Rust side, so the webview is
+ * never handed the filesystem — it asks for a vault and gets a vault.
+ */
+export async function pickLocalVault(): Promise<LocalVaultEntry | undefined> {
+  return (await tauri().invoke<LocalVaultEntry | null>('pick_local_vault')) ?? undefined
+}
+
+/** Stops listing a folder. The folder and its notes stay where they are. */
+export async function forgetLocalVault(id: string): Promise<void> {
+  await tauri().invoke('forget_local_vault', { id })
+}
+
 /**
  * Bridges the storage seam to the Rust side for one vault. Every call is a
  * Tauri command; the Rust half owns path safety, hashing and atomic writes,

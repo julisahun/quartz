@@ -1,9 +1,11 @@
 import { useState, type FormEvent } from 'react'
 import { ApiError, OfflineError } from '../api/client'
 import { useApp } from '../state/store'
+import { isDesktop } from '../vault/tauri-bridge'
 
 export function LoginScreen() {
   const login = useApp((s) => s.login)
+  const openFolder = useApp((s) => s.openFolder)
   const [user, setUser] = useState('juli')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -49,6 +51,12 @@ export function LoginScreen() {
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
+      {/* A folder on disk needs no account, so this cannot sit behind one. */}
+      {isDesktop() && (
+        <button className="ghost login-alt" onClick={() => void openFolder()}>
+          Open a folder instead
+        </button>
+      )}
     </div>
   )
 }

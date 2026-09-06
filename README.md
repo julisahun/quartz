@@ -184,7 +184,9 @@ to leave them; dismissing the sheet cancels the rename. Each link keeps the
 shape it was written in, `#headings` and `|display text` included, and widens
 to a full path only when the new name would otherwise be ambiguous.
 
-The desktop shell is in [`desktop/`](desktop/README.md).
+The desktop shell is in [`desktop/`](desktop/README.md). It can also open any
+folder on disk as a vault of its own — no account, no server, no sync — which
+is the one way to use quartz with the Pi switched off.
 
 ## Where each milestone stands
 
@@ -195,7 +197,7 @@ The desktop shell is in [`desktop/`](desktop/README.md).
 | M2 | Read-only client | done — PWA, offline reads, FTS5 search |
 | M3 | Editing + sync | done — pending queue, `If-Match` push, conflict sidecars |
 | M4 | Live preview | done for the construct list above |
-| M5 | Tauri desktop | shell builds and the seam is swapped; signing and updates are not set up |
+| M5 | Tauri desktop | shell builds, the seam is swapped, folders open from disk; signing and updates are not set up |
 | M6 | iOS hardening | persistent storage, eviction recovery, keyboard-aware scrolling; the escape hatch has not been needed |
 | M7 | Multiple people | private vault per account, shared vaults, admin CLI; membership changes are CLI-only for now |
 

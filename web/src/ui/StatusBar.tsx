@@ -1,5 +1,5 @@
 import { useApp, type SyncState } from '../state/store'
-import { promptDelete, promptRename, promptSignOut } from './actions'
+import { promptDelete, promptForgetFolder, promptRename, promptSignOut } from './actions'
 import { useIsPhone } from './media'
 
 interface Props {
@@ -13,6 +13,7 @@ const label: Record<SyncState, string> = {
   offline: 'offline',
   'needs-login': 'signed out',
   error: 'sync failed',
+  local: 'local folder',
 }
 
 /**
@@ -25,12 +26,20 @@ export function StatusBar({ livePreview, onToggleLivePreview }: Props) {
   const pending = useApp((s) => s.pending)
   const unsaved = useApp((s) => s.unsaved)
   const currentPath = useApp((s) => s.currentPath)
+  const currentVault = useApp((s) => s.currentVault)
+  const isFolder = useApp((s) => s.vaults.some((v) => v.id === s.currentVault && v.kind === 'local'))
+  // An account is what "sign out" needs; folders on disk are not one.
+  const signedIn = useApp((s) => s.vaults.some((v) => v.kind !== 'local'))
   const syncNow = useApp((s) => s.syncNow)
   const isPhone = useIsPhone()
 
   return (
     <footer className="status">
-      <button className={`status-sync ${sync}`} onClick={() => void syncNow()} title="Sync now">
+      <button
+        className={`status-sync ${sync}`}
+        onClick={() => void syncNow()}
+        title={isFolder ? 'This folder lives on this machine only' : 'Sync now'}
+      >
         <span className="dot" />
         {label[sync]}
         {pending > 0 && <span className="pending">{pending} queued</span>}
@@ -52,9 +61,16 @@ export function StatusBar({ livePreview, onToggleLivePreview }: Props) {
               </button>
             </>
           )}
-          <button className="ghost" onClick={() => void promptSignOut()}>
-            sign out
-          </button>
+          {isFolder && currentVault && (
+            <button className="ghost" onClick={() => void promptForgetFolder(currentVault)}>
+              forget folder
+            </button>
+          )}
+          {signedIn && (
+            <button className="ghost" onClick={() => void promptSignOut()}>
+              sign out
+            </button>
+          )}
         </>
       )}
     </footer>
