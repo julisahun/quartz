@@ -16,6 +16,7 @@ const KEYS = {
   lastVault: 'quartz.lastVault',
   token: 'quartz.token',
   collapsed: 'quartz.collapsed',
+  sidebarWidth: 'quartz.sidebarWidth',
 } as const
 
 function read(key: string): string | undefined {
@@ -84,6 +85,17 @@ export const persisted = {
   },
   setCollapsed: (vault: string, paths: string[]) =>
     write(`${KEYS.collapsed}.${vault}`, JSON.stringify(paths)),
+
+  /**
+   * How wide the note list has been dragged, in pixels. A property of this
+   * screen rather than of any vault, so it is not stored per vault — and it
+   * survives signing out, which does not change how wide a window is.
+   */
+  sidebarWidth(): number | undefined {
+    const px = Number(read(KEYS.sidebarWidth))
+    return Number.isFinite(px) && px > 0 ? px : undefined
+  },
+  setSidebarWidth: (px: number) => write(KEYS.sidebarWidth, String(px)),
 
   /**
    * Forgets who was signed in, without touching the vaults themselves: the

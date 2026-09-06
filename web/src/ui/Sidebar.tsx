@@ -19,6 +19,7 @@ import { usePullToRefresh } from './gestures'
 import { Ellipsis, Plus, Refresh } from './icons'
 import { useIsPhone } from './media'
 import { NoteRow, NoteTree } from './NoteTree'
+import { SidebarResizer } from './SidebarResizer'
 import { VaultSwitcher } from './VaultSwitcher'
 
 interface Props {
@@ -247,10 +248,13 @@ export function Sidebar({ onNavigate, inert }: Props) {
         </div>
       </div>
 
-      {isPhone && (
+      {isPhone ? (
         <button className="fab" onClick={() => void newNote()} aria-label="New note">
           <Plus />
         </button>
+      ) : (
+        // Only where there is a second pane to take the space from.
+        <SidebarResizer />
       )}
     </aside>
   )

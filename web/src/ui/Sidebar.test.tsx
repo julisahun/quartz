@@ -44,8 +44,14 @@ afterEach(() => {
   root = undefined
   host = undefined
   localStorage.clear()
+  document.documentElement.removeAttribute('style')
   vi.restoreAllMocks()
 })
+
+const sidebarWidth = () => document.documentElement.style.getPropertyValue('--sidebar-width')
+
+const press = (el: Element, key: string) =>
+  el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
 
 describe('Sidebar', () => {
   it('shows the vault as folders, open', () => {
@@ -103,5 +109,34 @@ describe('Sidebar', () => {
   it('says so when a tag has nothing under it', () => {
     render({ files: files('A.md'), tags: [], query: '#gone' })
     expect(host!.textContent).toContain('Nothing is tagged #gone')
+  })
+
+  it('resizes the note list, and remembers how wide', () => {
+    render({ files: files('A.md') })
+    const handle = host!.querySelector('.sidebar-resizer')!
+    expect(sidebarWidth()).toBe('272px')
+
+    act(() => void press(handle, 'ArrowRight'))
+    expect(sidebarWidth()).toBe('288px')
+
+    // A width chosen once is the width the next window opens at.
+    act(() => root!.unmount())
+    render({ files: files('A.md') })
+    expect(sidebarWidth()).toBe('288px')
+  })
+
+  it('will not drag the list past half the window, or under a usable width', () => {
+    render({ files: files('A.md') })
+    const handle = host!.querySelector('.sidebar-resizer')!
+
+    act(() => void press(handle, 'End'))
+    expect(sidebarWidth()).toBe(`${Math.min(480, window.innerWidth / 2)}px`)
+
+    act(() => void press(handle, 'Home'))
+    expect(sidebarWidth()).toBe('192px')
+
+    // Double-clicking the handle puts it back where it started.
+    act(() => handle.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })))
+    expect(sidebarWidth()).toBe('272px')
   })
 })

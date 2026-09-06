@@ -187,7 +187,9 @@ will scroll inside a frame, so there the card offers to open it whole, which
 iOS does perfectly well. Nothing is bundled to do any of this.
 
 The note list is the vault's folders, open by default; closing one is
-remembered per vault, and opening a note opens the folders it is in. **⌘P**
+remembered per vault, and opening a note opens the folders it is in. The line
+between the list and the note is a handle — drag it, or hold it and use the
+arrow keys, and double-click it to put it back at 17rem. **⌘P**
 (Ctrl-P away from a Mac) is the switcher: fuzzy over the whole path, matching
 on the device and never waiting on the server, so `mbacero` finds
 `campaigns/marea-baja/objects/acero-del-manantial`. The search box above the
