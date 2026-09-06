@@ -1,6 +1,6 @@
 import { noteTitle } from '../state/notes'
 import { useApp } from '../state/store'
-import { askConfirm, askText } from './dialogs'
+import { askConfirm, askText, openMenu } from './dialogs'
 
 /**
  * The note actions that need to ask something first. One copy, so the phone's
@@ -21,7 +21,38 @@ export async function promptRename(path: string): Promise<string | undefined> {
     confirmLabel: 'Rename',
   })
   if (next === null || next === path) return undefined
-  return useApp.getState().renameNote(path, next)
+
+  // Only worth asking when there is something to decide: a note nothing links
+  // to is renamed without a second sheet.
+  const linking = await useApp.getState().linksTo(path)
+  let updateLinks = false
+  if (linking > 0) {
+    let chosen: boolean | undefined
+    const picked = await openMenu(
+      `${linking} ${linking === 1 ? 'note links' : 'notes link'} to ${noteTitle(path)}`,
+      [
+        {
+          label: 'Rename and update them',
+          hint: 'The links follow the new name',
+          run: () => {
+            chosen = true
+          },
+        },
+        {
+          label: 'Rename only',
+          hint: 'Those links will stop resolving',
+          run: () => {
+            chosen = false
+          },
+        },
+      ],
+    )
+    // Dismissing the sheet is not a quiet yes to either: nothing moves.
+    if (!picked || chosen === undefined) return undefined
+    updateLinks = chosen
+  }
+
+  return useApp.getState().renameNote(path, next, updateLinks)
 }
 
 export async function promptDelete(path: string): Promise<boolean> {

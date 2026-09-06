@@ -4,7 +4,8 @@ import { SyncEngine, type SyncNotice } from '../sync/engine'
 import { createVaultStore } from '../vault'
 import { isDesktop } from '../vault/tauri-bridge'
 import { decodeText, encodeText, type FileMeta, type VaultStore } from '../vault/types'
-import { isNote, noteTitle, pathForTitle, uniquePath } from './notes'
+import { LinkIndex, retargetLinks, sameBacklinks, type Backlink } from './links'
+import { buildResolver, isNote, noteTitle, pathForTitle, uniquePath } from './notes'
 import { persisted } from './persist'
 import { detectEviction, requestPersistence } from './storage'
 
@@ -28,10 +29,11 @@ const api = new HttpApi(apiBase, desktop ? persisted.token() : undefined, (token
   persisted.setToken(token),
 )
 
-/** One vault's local half: where its files live and what syncs them. */
+/** One vault's local half: where its files live, what syncs them, what links to what. */
 interface Runtime {
   store: VaultStore
   engine: SyncEngine
+  links: LinkIndex
 }
 
 const runtimes = new Map<string, Runtime>()
@@ -40,6 +42,9 @@ let syncTimer: ReturnType<typeof setTimeout> | undefined
 let syncing = false
 let syncAgain = false
 let noticeId = 0
+// Rebuilding the link map is async and files keep moving; only the newest
+// answer is allowed to land.
+let backlinkSeq = 0
 
 interface AppState {
   phase: 'loading' | 'login' | 'ready'
@@ -52,6 +57,8 @@ interface AppState {
   content: string
   unsaved: boolean
   pending: number
+  /** Notes linking to the open one, newest computation wins. */
+  backlinks: Backlink[]
   sync: SyncState
   lastSyncedAt: number
   notices: Notice[]
@@ -65,7 +72,9 @@ interface AppState {
   save(): Promise<void>
   createNote(title: string, folder?: string): Promise<string>
   deleteNote(path: string): Promise<void>
-  renameNote(from: string, to: string): Promise<string>
+  renameNote(from: string, to: string, updateLinks?: boolean): Promise<string>
+  /** How many notes link to this one — what a rename is about to break. */
+  linksTo(path: string): Promise<number>
   attach(file: File): Promise<string>
   blobUrl(path: string): Promise<string | undefined>
   syncNow(): Promise<void>
@@ -99,7 +108,7 @@ export const useApp = create<AppState>()((set, get) => {
         }
       },
     })
-    const runtime = { store, engine }
+    const runtime = { store, engine, links: new LinkIndex() }
     runtimes.set(key, runtime)
     return runtime
   }
@@ -112,12 +121,44 @@ export const useApp = create<AppState>()((set, get) => {
   const refreshFiles = async () => {
     const runtime = current()
     if (!runtime) {
-      set({ files: [], pending: 0 })
+      set({ files: [], pending: 0, backlinks: [] })
       return
     }
     const files = await runtime.store.list()
     const pending = (await runtime.store.pending()).length
     set({ files, pending })
+    scheduleBacklinks()
+  }
+
+  /**
+   * Who points at the open note.
+   *
+   * Deliberately not awaited: it reads every note whose hash moved, and the
+   * note you asked for must not wait behind a scan of the vault. The panel
+   * fills in a moment later, and only the newest answer is allowed to land.
+   */
+  const refreshBacklinks = async () => {
+    const runtime = current()
+    const path = get().currentPath
+    const seq = ++backlinkSeq
+    if (!runtime || !path || !isNote(path)) {
+      if (get().backlinks.length) set({ backlinks: [] })
+      return
+    }
+    await runtime.links.rebuild(get().files, (p) => runtime.store.read(p))
+    if (seq !== backlinkSeq) return
+    const next = runtime.links.to(path)
+    if (!sameBacklinks(get().backlinks, next)) set({ backlinks: next })
+  }
+
+  const scheduleBacklinks = () => {
+    void refreshBacklinks().catch((err) => console.warn('backlinks failed', err))
+  }
+
+  /** The notes whose text mentions `path`, from an up-to-date link map. */
+  const linkingNotes = async (runtime: Runtime, path: string): Promise<string[]> => {
+    await runtime.links.rebuild(get().files, (p) => runtime.store.read(p))
+    return [...new Set(runtime.links.to(path).map((b) => b.path))]
   }
 
   const openFirstNote = async () => {
@@ -157,6 +198,7 @@ export const useApp = create<AppState>()((set, get) => {
     content: '',
     unsaved: false,
     pending: 0,
+    backlinks: [],
     sync: 'idle',
     lastSyncedAt: 0,
     notices: [],
@@ -222,6 +264,7 @@ export const useApp = create<AppState>()((set, get) => {
         files: [],
         currentPath: undefined,
         content: '',
+        backlinks: [],
       })
     },
 
@@ -229,7 +272,7 @@ export const useApp = create<AppState>()((set, get) => {
       if (get().unsaved) await get().save()
       if (get().currentVault === id) return
       persisted.setLastVault(id)
-      set({ currentVault: id, currentPath: undefined, content: '', unsaved: false })
+      set({ currentVault: id, currentPath: undefined, content: '', unsaved: false, backlinks: [] })
 
       const runtime = runtimeFor(id)
       if (await detectEviction(runtime.store)) {
@@ -247,6 +290,7 @@ export const useApp = create<AppState>()((set, get) => {
       try {
         const data = await runtime.store.read(path)
         set({ currentPath: path, content: decodeText(data), unsaved: false })
+        scheduleBacklinks()
       } catch {
         notice('error', `${path} is not stored on this device yet`)
       }
@@ -285,23 +329,68 @@ export const useApp = create<AppState>()((set, get) => {
       if (!runtime) return
       await runtime.store.delete(path)
       if (get().currentPath === path) {
-        set({ currentPath: undefined, content: '', unsaved: false })
+        set({ currentPath: undefined, content: '', unsaved: false, backlinks: [] })
       }
       await refreshFiles()
       scheduleSync()
     },
 
-    async renameNote(from, to) {
+    async renameNote(from, to, updateLinks = false) {
       const runtime = current()
       if (!runtime) throw new Error('no vault is open')
-      const target = uniquePath(to, get().files)
+      // What is on screen is what should end up under the new name, not
+      // whatever the debounced save last managed to store.
+      if (get().unsaved) await get().save()
+
+      const before = get().files
+      const target = uniquePath(to, before)
+      // Worked out before anything moves: afterwards the old name resolves to
+      // nothing and there is no way to tell which links meant this note.
+      const linking = updateLinks ? await linkingNotes(runtime, from) : []
+
       const data = await runtime.store.read(from)
       await runtime.store.write(target, data)
       await runtime.store.delete(from)
+
+      let rewritten = 0
+      if (linking.length > 0) {
+        const after = await runtime.store.list()
+        const name = target.slice(target.lastIndexOf('/') + 1).replace(/\.md$/i, '')
+        const shortNameWorks = buildResolver(after)(name) === target
+        const resolve = buildResolver(before)
+
+        for (const path of linking) {
+          let text: string
+          try {
+            text = decodeText(await runtime.store.read(path))
+          } catch {
+            // Not stored on this device. Its links keep the old name, which is
+            // better than dropping the rename half-done to say so.
+            continue
+          }
+          const next = retargetLinks(text, { resolve, from, to: target, shortNameWorks })
+          if (next.changed === 0) continue
+          await runtime.store.write(path, encodeText(next.text))
+          rewritten++
+        }
+      }
+
       await refreshFiles()
-      if (get().currentPath === from) await get().open(target)
+      const open = get().currentPath
+      if (open === from) await get().open(target)
+      else if (open && linking.includes(open)) await get().open(open)
+
+      if (rewritten > 0) {
+        notice('info', `${noteTitle(from)} is now ${noteTitle(target)}; ${rewritten} note${rewritten === 1 ? '' : 's'} updated`)
+      }
       scheduleSync()
       return target
+    },
+
+    async linksTo(path) {
+      const runtime = current()
+      if (!runtime) return 0
+      return (await linkingNotes(runtime, path)).length
     },
 
     async attach(file) {
@@ -350,7 +439,7 @@ export const useApp = create<AppState>()((set, get) => {
           const runtime = runtimeFor(currentVault)
           const meta = await runtime.store.meta(currentPath)
           if (!meta) {
-            set({ currentPath: undefined, content: '' })
+            set({ currentPath: undefined, content: '', backlinks: [] })
           } else {
             const text = decodeText(await runtime.store.read(currentPath))
             if (text !== get().content) set({ content: text })

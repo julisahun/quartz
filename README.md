@@ -162,6 +162,28 @@ blockquotes, code fences, horizontal rules, tables. Code fences keep their
 visible-but-dimmed ``` markers rather than disappearing, which keeps the
 cursor's path through a fence obvious.
 
+Below 46rem the layout is one screen at a time: the note list is the home
+screen and a note is pushed over it as a history entry, so the back gesture of
+a standalone PWA works. Above it, list and editor sit side by side as before.
+The phone screens carry their own top bars — the actions live in a `⋯` sheet
+rather than in the status bar, which shrinks to the sync light — and the editor
+gets a scrolling markdown toolbar above the keyboard. Asking anything (a new
+note's title, a rename, a delete) goes through `ui/dialogs.tsx` instead of
+`prompt()`/`confirm()`. Swipe in from the left edge to go back, pull the list
+down to sync, swipe a row left to uncover its delete.
+
+Under the editor sits what links here: `3 linked mentions`, expanding to those
+notes and the line each link is written on. The link map is built on the device
+from the local vault, through the same `[[link]]` resolution the editor follows,
+so backlinks are right offline and on a phone with no signal — and a note
+nothing points at shows no strip at all.
+
+Renaming a note takes its links with it. When something links to the note, the
+rename asks first — "4 notes link to Pi setup" — and offers to update them or
+to leave them; dismissing the sheet cancels the rename. Each link keeps the
+shape it was written in, `#headings` and `|display text` included, and widens
+to a full path only when the new name would otherwise be ambiguous.
+
 The desktop shell is in [`desktop/`](desktop/README.md).
 
 ## Where each milestone stands

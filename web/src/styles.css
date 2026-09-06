@@ -542,6 +542,86 @@ button:focus-visible {
   text-align: center;
 }
 
+/* ---------- backlinks ---------- */
+
+.backlinks {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* Collapsed it is one row; expanded it never takes more than the editor. */
+  max-height: 45%;
+  border-top: 1px solid var(--border);
+  background: var(--sidebar-bg);
+  padding-left: var(--sal);
+  padding-right: var(--sar);
+}
+
+.backlinks-head {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: var(--tap);
+  padding: 0 0.75rem;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.backlinks-head:hover {
+  color: var(--text);
+}
+
+.backlinks-caret {
+  display: inline-flex;
+  color: var(--faint);
+}
+
+.backlink-list {
+  margin: 0;
+  padding: 0 0 0.4rem;
+  list-style: none;
+  overflow-y: auto;
+  min-height: 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.backlink {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.1rem;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0.4rem 0.75rem 0.4rem 1.6rem;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.backlink:hover {
+  background: var(--bg-raised);
+}
+
+.backlink-title {
+  font-size: 0.85rem;
+}
+
+.backlink-context {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 /* ---------- keyboard toolbar ---------- */
 
 .toolbar {

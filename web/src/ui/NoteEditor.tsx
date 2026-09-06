@@ -6,6 +6,7 @@ import { resolveWikilink, pathForTitle, isNote, noteTitle } from '../state/notes
 import { useApp } from '../state/store'
 import { promptDelete, promptRename } from './actions'
 import { AppBar } from './AppBar'
+import { Backlinks } from './Backlinks'
 import { openMenu } from './dialogs'
 import { EditorToolbar } from './EditorToolbar'
 import { ChevronLeft, Ellipsis } from './icons'
@@ -127,7 +128,14 @@ export function NoteEditor({ livePreview, onToggleLivePreview, onBack }: Props) 
     body = <div className="editor" ref={host} />
   }
 
-  if (!isPhone) return body
+  if (!isPhone) {
+    return (
+      <>
+        {body}
+        <Backlinks />
+      </>
+    )
+  }
 
   return (
     <>
@@ -148,6 +156,7 @@ export function NoteEditor({ livePreview, onToggleLivePreview, onBack }: Props) 
         }
       />
       {body}
+      <Backlinks />
       <EditorToolbar view={toolbarView} />
     </>
   )

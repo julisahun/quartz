@@ -19,25 +19,44 @@ export function isConflictCopy(path: string): boolean {
 }
 
 /**
- * Resolves a [[wikilink]] against the vault the way Obsidian does: an exact
- * path first, then any note whose name matches, case-insensitively.
+ * Prepares the vault for repeated wikilink resolution.
+ *
+ * The rules are Obsidian's — an exact path first, then any note whose name
+ * matches, case-insensitively — and they live here once. Backlinks resolve
+ * every link in the vault at once, which is why the lookup tables are built
+ * ahead of the questions rather than scanned per link.
  */
+export function buildResolver(files: FileMeta[]): (target: string) => string | undefined {
+  const exact = new Set<string>()
+  const byPath = new Map<string, string>()
+  const byName = new Map<string, string>()
+
+  for (const file of files) {
+    exact.add(file.path)
+    const lower = file.path.toLowerCase()
+    // First one wins, so two notes of the same name resolve the way a scan of
+    // the file list in order would have.
+    if (!byPath.has(lower)) byPath.set(lower, file.path)
+    const name = lower.slice(lower.lastIndexOf('/') + 1)
+    if (!byName.has(name)) byName.set(name, file.path)
+  }
+
+  return (target) => {
+    const cleaned = target.split('#')[0].split('|')[0].trim()
+    if (!cleaned) return undefined
+
+    const withExt = cleaned.toLowerCase().endsWith('.md') ? cleaned : `${cleaned}.md`
+    if (exact.has(withExt)) return withExt
+    if (exact.has(cleaned)) return cleaned
+
+    const lower = withExt.toLowerCase()
+    return byPath.get(lower) ?? byName.get(lower.slice(lower.lastIndexOf('/') + 1))
+  }
+}
+
+/** Resolves one [[wikilink]] against the vault. See {@link buildResolver}. */
 export function resolveWikilink(target: string, files: FileMeta[]): string | undefined {
-  const cleaned = target.split('#')[0].split('|')[0].trim()
-  if (!cleaned) return undefined
-
-  const withExt = cleaned.toLowerCase().endsWith('.md') ? cleaned : `${cleaned}.md`
-  const paths = files.map((f) => f.path)
-
-  const exact = paths.find((p) => p === withExt || p === cleaned)
-  if (exact) return exact
-
-  const lower = withExt.toLowerCase()
-  const byPath = paths.find((p) => p.toLowerCase() === lower)
-  if (byPath) return byPath
-
-  const name = lower.slice(lower.lastIndexOf('/') + 1)
-  return paths.find((p) => p.toLowerCase().slice(p.lastIndexOf('/') + 1) === name)
+  return buildResolver(files)(target)
 }
 
 /** The path a new note takes, avoiding a collision with an existing one. */
