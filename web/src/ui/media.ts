@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { readViewport } from '../editor/mobile'
 
 /** Below this the app is one screen at a time; above it, list and note sit side by side. */
 export const PHONE_QUERY = '(max-width: 46rem)'
@@ -29,14 +30,12 @@ export function useIsPhone(): boolean {
 }
 
 /**
- * Whether the on-screen keyboard is up, inferred from the gap the visual
- * viewport leaves behind. There is no API that answers this directly, and the
- * gap is what actually matters: it is the space the layout has lost.
+ * Whether the on-screen keyboard is up. There is no API that answers this, so
+ * it is read off the same visual viewport the layout follows — one reading, so
+ * the toolbar cannot disagree with the layout it sits in.
  */
 function keyboardIsOpen(): boolean {
-  const viewport = window.visualViewport
-  if (!viewport) return false
-  return window.innerHeight - viewport.height > 120
+  return readViewport().keyboard
 }
 
 export function useKeyboardOpen(): boolean {

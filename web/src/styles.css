@@ -65,17 +65,36 @@
   }
 }
 
+/* With the keyboard up there is no home indicator to clear — it is behind the
+   keys — and reserving room for it is just a gap above the keyboard. */
+html[data-keyboard='open'] {
+  --sab: 0px;
+}
+
 * {
   box-sizing: border-box;
 }
 
 html,
-body,
-#root {
-  /* --viewport-height tracks the visual viewport, so the layout sits above
-     the on-screen keyboard rather than behind it. */
-  height: var(--viewport-height, 100%);
+body {
+  height: 100%;
   margin: 0;
+  /* The document itself never scrolls — every pane does its own scrolling — so
+     there is nothing for iOS to move around under the keyboard. */
+  overflow: hidden;
+}
+
+/* Pinned to the *visible* viewport rather than the layout one. iOS shrinks the
+   visual viewport by the height of the keyboard and then pans it down to bring
+   the focused field into view; an app anchored to the layout viewport ends up
+   exactly that far above the screen, which is the keyboard shoving everything
+   too far up. --viewport-top is that pan, and following it undoes it. */
+#root {
+  position: fixed;
+  top: var(--viewport-top, 0px);
+  left: 0;
+  right: 0;
+  height: var(--viewport-height, 100%);
 }
 
 body {
@@ -217,9 +236,13 @@ button:focus-visible {
 .login {
   display: grid;
   place-items: center;
-  align-content: center;
+  /* `safe`, so a card taller than what the keyboard leaves of the screen
+     starts at the top and can be scrolled to rather than being centred with
+     its head off the edge. */
+  align-content: safe center;
   gap: 0.9rem;
   height: 100%;
+  overflow-y: auto;
   padding: 1rem;
   padding-top: calc(1rem + var(--sat));
   padding-bottom: calc(1rem + var(--sab));
@@ -639,7 +662,10 @@ button:focus-visible {
 
 .quick-layer {
   position: fixed;
-  inset: 0;
+  top: var(--viewport-top, 0px);
+  left: 0;
+  right: 0;
+  height: var(--viewport-height, 100%);
   z-index: 20;
   display: flex;
   justify-content: center;
@@ -657,7 +683,7 @@ button:focus-visible {
   display: flex;
   flex-direction: column;
   width: min(38rem, 100%);
-  max-height: 60vh;
+  max-height: 60%;
   overflow: hidden;
   background: var(--bg-raised);
   border: 1px solid var(--border);
@@ -1008,7 +1034,9 @@ button:focus-visible {
 /* ---------- notices and banners ---------- */
 
 .notices {
-  position: fixed;
+  /* Inside the app rather than the window: a toast that appeared behind the
+     keyboard would be a toast nobody read. */
+  position: absolute;
   right: calc(0.8rem + var(--sar));
   /* Clear of the status bar, which is the last row of the layout. */
   bottom: calc(3rem + var(--sab));
@@ -1081,7 +1109,9 @@ button:focus-visible {
 
 .sheet-layer {
   position: fixed;
-  inset: 0;
+  top: var(--viewport-top, 0px);
+  left: 0;
+  right: 0;
   height: var(--viewport-height, 100%);
   z-index: 60;
   display: flex;

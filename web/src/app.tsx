@@ -8,7 +8,7 @@ import { QuickOpen } from './ui/QuickOpen'
 import { Sidebar } from './ui/Sidebar'
 import { StatusBar } from './ui/StatusBar'
 import { LoginScreen } from './ui/LoginScreen'
-import { trackViewportHeight } from './editor/mobile'
+import { trackViewport } from './editor/mobile'
 import { startBackgroundSync, useApp } from './state/store'
 import { noteTitle } from './state/notes'
 
@@ -31,7 +31,7 @@ export function App() {
   useEffect(() => {
     void boot()
     const stopSync = startBackgroundSync()
-    const stopViewport = trackViewportHeight()
+    const stopViewport = trackViewport()
     return () => {
       stopSync()
       stopViewport()
