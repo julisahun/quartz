@@ -1,16 +1,17 @@
 import type { VaultSummary } from '../api/client'
 import { useApp } from '../state/store'
 import { isLocal } from '../state/vaults'
-import { isDesktop } from '../vault/tauri-bridge'
+import { foldersSupported } from '../vault/folders'
 import { FolderPlus } from './icons'
 
 /**
  * Switches between the vaults this account can open — its own, plus any shared
  * ones it has been added to — and the folders opened from disk on this device.
  *
- * Hidden in a browser when there is only one, since most people will only ever
- * have theirs. The desktop always keeps the picker beside it: opening a folder
- * is how a machine with no account gets a vault at all.
+ * Hidden when there is only one and no folder can be opened, since most people
+ * will only ever have theirs. Where folders are possible the picker stays
+ * beside it whatever the list looks like: opening one is how a machine with no
+ * account gets a vault at all.
  */
 export function VaultSwitcher() {
   const vaults = useApp((s) => s.vaults)
@@ -18,9 +19,9 @@ export function VaultSwitcher() {
   const selectVault = useApp((s) => s.selectVault)
   const openFolder = useApp((s) => s.openFolder)
   const user = useApp((s) => s.user)
-  const desktop = isDesktop()
+  const canOpenFolders = foldersSupported()
 
-  if (vaults.length <= 1 && !desktop) return null
+  if (vaults.length <= 1 && !canOpenFolders) return null
 
   const mine = vaults.filter((v): v is VaultSummary => v.kind === 'private')
   const shared = vaults.filter((v): v is VaultSummary => v.kind === 'shared')
@@ -63,7 +64,7 @@ export function VaultSwitcher() {
           </select>
         </label>
       )}
-      {desktop && (
+      {canOpenFolders && (
         <button
           className="icon-button"
           onClick={() => void openFolder()}

@@ -11,8 +11,11 @@ export interface LocalVaultSummary {
   id: string
   name: string
   kind: 'local'
-  /** Where it sits on this machine, for telling two folders of one name apart. */
-  path: string
+  /**
+   * Where it sits on this machine, for telling two folders of one name apart.
+   * Absent in a browser, which is never told where a folder actually is.
+   */
+  path?: string
 }
 
 /** Either kind of vault, as the app lists them side by side. */

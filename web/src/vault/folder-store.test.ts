@@ -2,12 +2,12 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { ApiError } from '../api/client'
 import { SyncEngine } from '../sync/engine'
 import { FakeApi, FakeServer } from '../sync/fake-server'
-import { DesktopVaultStore, type DesktopBridge } from './desktop-store'
+import { FolderVaultStore, type FolderBridge } from './folder-store'
 import { sha256Hex } from './hash'
 import { decodeText, encodeText } from './types'
 
 /** An in-memory stand-in for a real folder on disk. */
-class MemoryFolder implements DesktopBridge {
+class MemoryFolder implements FolderBridge {
   files = new Map<string, Uint8Array>()
   private state = ''
 
@@ -44,14 +44,14 @@ class MemoryFolder implements DesktopBridge {
 
 describe('desktop vault store', () => {
   let folder: MemoryFolder
-  let store: DesktopVaultStore
+  let store: FolderVaultStore
   let server: FakeServer
   let api: FakeApi
   let engine: SyncEngine
 
   beforeEach(() => {
     folder = new MemoryFolder()
-    store = new DesktopVaultStore(folder)
+    store = new FolderVaultStore(folder)
     server = new FakeServer()
     api = new FakeApi(server)
     engine = new SyncEngine(store, api, { device: 'desktop' })
@@ -110,7 +110,7 @@ describe('desktop vault store', () => {
 
     // The state file is gone but the folder is intact.
     await folder.stateWrite('')
-    const fresh = new DesktopVaultStore(folder)
+    const fresh = new FolderVaultStore(folder)
     const freshEngine = new SyncEngine(fresh, api, { device: 'desktop' })
     const stats = await freshEngine.sync()
     expect(stats.conflicts).toBe(0)

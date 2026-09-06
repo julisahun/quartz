@@ -1,4 +1,4 @@
-import type { DesktopBridge } from './desktop-store'
+import type { FolderBridge } from './folder-store'
 
 interface TauriApi {
   invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>
@@ -47,7 +47,7 @@ export async function forgetLocalVault(id: string): Promise<void> {
  * Tauri command; the Rust half owns path safety, hashing and atomic writes,
  * exactly as the server does for the vaults on the Pi.
  */
-export function tauriBridge(vault: string): DesktopBridge {
+export function tauriBridge(vault: string): FolderBridge {
   return {
     list: () => tauri().invoke('vault_list', { vault }),
     read: async (path) => new Uint8Array(await tauri().invoke<number[]>('vault_read', { vault, path })),

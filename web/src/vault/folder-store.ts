@@ -2,11 +2,12 @@ import { sha256Hex } from './hash'
 import type { FileMeta, FileRecord, PendingOp, VaultStore } from './types'
 
 /**
- * What the desktop shell must provide: a real folder, and somewhere outside it
- * to keep sync bookkeeping. Kept as an interface so the store can be tested
- * without Tauri, and so a different shell could supply the same thing.
+ * What a folder-backed vault needs underneath it: a real directory, and
+ * somewhere outside it to keep sync bookkeeping. Two things supply this — the
+ * desktop shell through Tauri commands, and a Chromium browser through the
+ * File System Access API — so the folder semantics above it are written once.
  */
-export interface DesktopBridge {
+export interface FolderBridge {
   list(): Promise<{ path: string; hash: string; size: number; mtime: number }[]>
   read(path: string): Promise<Uint8Array>
   write(path: string, data: Uint8Array): Promise<void>
@@ -16,14 +17,14 @@ export interface DesktopBridge {
   stateWrite(json: string): Promise<void>
 }
 
-interface DesktopState {
+interface FolderState {
   cursor: number
   flags: Record<string, string>
   /** path → the hash the server last confirmed. */
   base: Record<string, string>
 }
 
-const emptyState = (): DesktopState => ({ cursor: 0, flags: {}, base: {} })
+const emptyState = (): FolderState => ({ cursor: 0, flags: {}, base: {} })
 
 /**
  * The folder implementation of the storage seam.
@@ -32,15 +33,17 @@ const emptyState = (): DesktopState => ({ cursor: 0, flags: {}, base: {} })
  * time. Nothing is duplicated into a database, so a file deleted in Finder is
  * simply a file that is no longer listed — which is exactly what a pending
  * delete looks like.
+ *
+ * Which folder, and how it is reached, is the bridge's business.
  */
-export class DesktopVaultStore implements VaultStore {
-  private state: DesktopState | undefined
+export class FolderVaultStore implements VaultStore {
+  private state: FolderState | undefined
 
-  constructor(private readonly bridge: DesktopBridge) {}
+  constructor(private readonly bridge: FolderBridge) {}
 
-  private async load(): Promise<DesktopState> {
+  private async load(): Promise<FolderState> {
     if (this.state) return this.state
-    let loaded: DesktopState
+    let loaded: FolderState
     try {
       const raw = await this.bridge.stateRead()
       loaded = raw ? { ...emptyState(), ...JSON.parse(raw) } : emptyState()

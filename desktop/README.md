@@ -45,6 +45,11 @@ instead**, and signing out leaves it open.
 - A folder under the vaults base is refused: it is already a synced vault, and
   two stores writing one directory would fight.
 
+Chromium browsers can open a folder too, through the File System Access API,
+and the app treats both the same way. The shell's version is the better one: it
+records the path, so a folder stays open across restarts without the browser
+asking for permission again every time.
+
 ## Auth
 
 The webview's origin is not the server's, so a session cookie would be a

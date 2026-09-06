@@ -3,11 +3,13 @@ import { ApiError, HttpApi, OfflineError, type SearchHit, type VaultSummary } fr
 import { SyncEngine, type SyncNotice } from '../sync/engine'
 import { createVaultStore } from '../vault'
 import {
-  forgetLocalVault,
-  isDesktop,
-  localVaults,
-  pickLocalVault,
-} from '../vault/tauri-bridge'
+  accessGranted,
+  ensureAccess,
+  forgetFolder as forgetFolderOnDisk,
+  listFolders,
+  pickFolder,
+} from '../vault/folders'
+import { isDesktop } from '../vault/tauri-bridge'
 import { decodeText, encodeText, type FileMeta, type VaultStore } from '../vault/types'
 import { LinkIndex, retargetLinks, sameBacklinks, type Backlink } from './links'
 import { buildResolver, isNote, noteTitle, pathForTitle, uniquePath } from './notes'
@@ -119,7 +121,7 @@ export const useApp = create<AppState>()((set, get) => {
     const existing = runtimes.get(key)
     if (existing) return existing
 
-    const store = createVaultStore(user, vaultId)
+    const store = createVaultStore(user, vaultId, local)
     if (local) {
       const runtime = { store, links: new LinkIndex() }
       runtimes.set(key, runtime)
@@ -204,6 +206,19 @@ export const useApp = create<AppState>()((set, get) => {
     syncTimer = setTimeout(() => void get().syncNow(), delay)
   }
 
+  /**
+   * Which vault to open on launch. A folder in a browser whose permission has
+   * lapsed cannot be opened without a click, so it gives way to a vault that
+   * can. If there is none it is chosen anyway, so that selecting it produces
+   * the notice explaining why the list is empty.
+   */
+  const bootVault = async (user: string): Promise<string | undefined> => {
+    const vaults = get().vaults
+    const chosen = chooseVault(vaults, user, persisted.lastVault())
+    if (!chosen || !isLocalVault(chosen) || (await accessGranted(chosen))) return chosen
+    return chooseVault(vaults.filter((v) => !isLocal(v)), user) ?? chosen
+  }
+
   const adoptIdentity = async (user: string, vaults: VaultSummary[]) => {
     persisted.setUser(user)
     persisted.setVaults(vaults)
@@ -235,7 +250,7 @@ export const useApp = create<AppState>()((set, get) => {
       const device = persisted.device()
       const cachedUser = persisted.user() ?? ''
       const cachedVaults = persisted.vaults()
-      const folders = (await localVaults()).map(
+      const folders = (await listFolders()).map(
         (f): LocalVaultSummary => ({ ...f, kind: 'local' }),
       )
       set({ device, user: cachedUser, vaults: mergeVaults(cachedVaults, folders) })
@@ -247,7 +262,7 @@ export const useApp = create<AppState>()((set, get) => {
       const openable = (cachedUser !== '' && cachedVaults.length > 0) || folders.length > 0
       if (openable) {
         set({ phase: 'ready' })
-        const chosen = chooseVault(get().vaults, cachedUser, persisted.lastVault())
+        const chosen = await bootVault(cachedUser)
         if (chosen) await get().selectVault(chosen)
       }
 
@@ -313,6 +328,15 @@ export const useApp = create<AppState>()((set, get) => {
     async selectVault(id) {
       if (get().unsaved) await get().save()
       if (get().currentVault === id) return
+      // A folder opened in a browser holds its permission only as long as the
+      // tab, so re-granting it is the normal path on a cold start. The browser
+      // will ask only while the click that got here is still fresh, which is
+      // why this comes before anything slow.
+      if (isLocalVault(id) && !(await ensureAccess(id))) {
+        const name = get().vaults.find((v) => v.id === id)?.name ?? id
+        notice('info', `${name} needs permission again — choose it in the list to let the browser ask.`)
+        return
+      }
       persisted.setLastVault(id)
       set({ currentVault: id, currentPath: undefined, content: '', unsaved: false, backlinks: [] })
 
@@ -339,7 +363,7 @@ export const useApp = create<AppState>()((set, get) => {
     async openFolder() {
       let picked
       try {
-        picked = await pickLocalVault()
+        picked = await pickFolder()
       } catch (err) {
         // The shell refuses a folder it already manages as a synced vault.
         notice('error', String(err))
@@ -364,7 +388,7 @@ export const useApp = create<AppState>()((set, get) => {
     async forgetFolder(id) {
       const folder = get().vaults.find((v) => v.id === id)
       if (!folder || !isLocal(folder)) return
-      await forgetLocalVault(id)
+      await forgetFolderOnDisk(id)
       runtimes.delete(`local/${id}`)
 
       const rest = get().vaults.filter((v) => v.id !== id)

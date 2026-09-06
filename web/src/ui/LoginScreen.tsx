@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { ApiError, OfflineError } from '../api/client'
 import { useApp } from '../state/store'
-import { isDesktop } from '../vault/tauri-bridge'
+import { foldersSupported } from '../vault/folders'
 
 export function LoginScreen() {
   const login = useApp((s) => s.login)
@@ -52,7 +52,7 @@ export function LoginScreen() {
         </button>
       </form>
       {/* A folder on disk needs no account, so this cannot sit behind one. */}
-      {isDesktop() && (
+      {foldersSupported() && (
         <button className="ghost login-alt" onClick={() => void openFolder()}>
           Open a folder instead
         </button>

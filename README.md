@@ -144,8 +144,9 @@ Tests: `go test ./...` (add `-race` before pushing).
 ## The web app
 
 `web/` is one frontend for all three shells. Everything it stores goes through
-`src/vault/types.ts` — the seam — so the browser (IndexedDB) and the desktop
-(a real folder) differ in one file and nothing else.
+`src/vault/types.ts` — the seam — so where a vault actually sits is decided in
+one place: IndexedDB for anything synced in a browser, and a real folder both
+for the desktop shell and for a folder opened from disk in Chromium.
 
 ```bash
 cd web
@@ -184,9 +185,25 @@ to leave them; dismissing the sheet cancels the rename. Each link keeps the
 shape it was written in, `#headings` and `|display text` included, and widens
 to a full path only when the new name would otherwise be ambiguous.
 
-The desktop shell is in [`desktop/`](desktop/README.md). It can also open any
-folder on disk as a vault of its own — no account, no server, no sync — which
-is the one way to use quartz with the Pi switched off.
+The desktop shell is in [`desktop/`](desktop/README.md).
+
+## Folders opened from disk
+
+Any folder can be opened as a vault of its own: no account, no server, no
+sync, and listed only on the device that opened it. It is the one way to use
+quartz with the Pi switched off, and the login screen offers it, so a machine
+with no account is not a machine with no notes.
+
+The desktop shell opens one through a native picker. Chromium browsers do it
+through the File System Access API — Safari and Firefox implement only the
+sandbox half of that API and not a picker onto your own folders, so on iOS
+there is no such thing and the button is not shown. A browser also has to ask
+for the folder again after a restart: the handle survives, the permission does
+not, so a folder needing re-granting says so and is opened by choosing it.
+
+Nothing about these reaches the Pi, and nothing commits them to git. A synced
+vault has the server's history behind it; a folder from disk is worth what
+your own backups make of it.
 
 ## Where each milestone stands
 

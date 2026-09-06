@@ -93,6 +93,29 @@ Not done: nothing repairs the links if the app dies halfway through the
 rewrite. The notes already written point at the new name, the rest still point
 at the old one, and the fix is to rename it back or edit them by hand.
 
+## Folders opened from disk (2026-09-06)
+
+Every vault until now belonged to an account and came from the server. A folder
+opened from disk belongs to nobody: it syncs with nothing, is listed only on
+the device that opened it, and is the one way to use the app with the Pi
+switched off — or with no account at all.
+
+| Question | Decision | Notes |
+|---|---|---|
+| Sync it somehow? | **No, never** | A local vault gets a store and a link index but no `SyncEngine` at all, so no code path exists that could push a private folder to the server. "It syncs with nothing" is a property of the wiring rather than a flag that could be set wrong. |
+| Where can one be opened? | **The desktop shell, and Chromium** | The shell uses a native picker, a browser the File System Access API. Safari and Firefox implement only the Origin Private File System — a sandbox the browser owns, not a picker onto your own directories — so on iOS there is no such thing, and the UI is gated on `foldersSupported()` rather than on being the desktop. |
+| One implementation or two? | **One, over two bridges** | `FolderVaultStore` holds the folder semantics; Tauri commands and the File System Access API supply the same `FolderBridge` underneath. A folder means one thing in both. The ignore list is the only rule copied by hand, into a third place beside the server's and the shell's. |
+| What identifies a folder? | **The path, where there is one** | The shell derives an id from the path, so opening the same folder twice reopens it. A browser is never told where a folder is, so the id is random and sameness is decided by `isSameEntry`. Both produce `local-<12 hex>`, and nothing above the bridge knows which answered. |
+| A permission that lapses? | **Ask on the click, never on launch** | A directory handle survives a restart in IndexedDB; its permission usually does not. `requestPermission` only works while a click is still fresh, so launch picks a vault it can already open, and a folder needing re-granting says so rather than coming back empty. |
+| Forgetting one? | **Off the list, nothing deleted** | The confirmation carries the whole weight of this, so it says where the notes stay. |
+| A folder already under the vaults base? | **Refused** | It is a synced vault already, and two stores writing one directory would fight. |
+
+Not done: a folder from disk has no safety net. A synced vault is a git repo
+the server commits to; this is worth exactly what your own backups make of it.
+Nothing says so beyond the docs. In a browser it is also only as durable as
+the handle in IndexedDB — site data cleared means the folder has to be picked
+again, though nothing in it is lost.
+
 ## Decisions taken while building
 
 - **Pure-Go SQLite** (`modernc.org/sqlite`) rather than `mattn/go-sqlite3`, so

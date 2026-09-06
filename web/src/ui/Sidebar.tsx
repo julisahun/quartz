@@ -3,7 +3,7 @@ import type { SearchHit } from '../api/client'
 import { useApp } from '../state/store'
 import { folderOf, isConflictCopy, isNote, noteTitle } from '../state/notes'
 import { vaultHint } from '../state/vaults'
-import { isDesktop } from '../vault/tauri-bridge'
+import { foldersSupported } from '../vault/folders'
 import { promptDelete, promptForgetFolder, promptNewNote, promptSignOut } from './actions'
 import { AppBar } from './AppBar'
 import { openMenu } from './dialogs'
@@ -91,8 +91,8 @@ export function Sidebar({ onNavigate, inert }: Props) {
     const open = vaults.find((v) => v.id === currentVault)
     void openMenu(vaultName(), [
       ...(vaults.length > 1 ? [{ label: 'Switch vault…', run: vaultMenu }] : []),
-      // Only the desktop shell has folders to open.
-      ...(isDesktop() ? [{ label: 'Open folder…', run: () => void openFolder() }] : []),
+      // Not every build can open one: iOS and Firefox have no way to.
+      ...(foldersSupported() ? [{ label: 'Open folder…', run: () => void openFolder() }] : []),
       ...(open?.kind === 'local'
         ? [{ label: 'Forget this folder', hint: 'Leaves the notes on disk', run: () => void promptForgetFolder(open.id) }]
         : [{ label: 'Sync now', run: () => void syncNow() }]),
