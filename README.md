@@ -161,9 +161,32 @@ npm run build
 Live preview is a CodeMirror 6 StateField that hides markup and puts it back on
 the line you are editing. Constructs were added one at a time: headings,
 emphasis, inline code, lists, checkboxes, links, `[[wikilinks]]`, image embeds,
-blockquotes, code fences, horizontal rules, tables. Code fences keep their
-visible-but-dimmed ``` markers rather than disappearing, which keeps the
-cursor's path through a fence obvious.
+blockquotes, code fences, horizontal rules, tables, `#tags` and YAML
+frontmatter. Code fences keep their visible-but-dimmed ``` markers rather than
+disappearing, which keeps the cursor's path through a fence obvious, and a
+fence with a language on it is highlighted — ten of them are bundled, and the
+rest are simply not coloured.
+
+Nothing in the theme uses a vertical margin. CodeMirror measures blocks with
+`getBoundingClientRect()`, which does not count margins, so a margin puts its
+height map out by that much and clicks start landing a line low. Space is
+padding, and `theme.test.ts` keeps it that way.
+
+Frontmatter renders as the properties it is — key on the left, value on the
+right, `tags:` as chips — and gives the YAML back when the cursor moves into
+it. A block only counts once its closing `---` is there, so a half-typed one is
+still an ordinary note. Tables render their cells' markup, links included,
+which in a vault where half a table is `[[wikilinks]]` is the difference
+between a table and a wall of brackets.
+
+The note list is the vault's folders, open by default; closing one is
+remembered per vault, and opening a note opens the folders it is in. **⌘P**
+(Ctrl-P away from a Mac) is the switcher: fuzzy over the whole path, matching
+on the device and never waiting on the server, so `mbacero` finds
+`campaigns/marea-baja/objects/acero-del-manantial`. The search box above the
+list is the other half — it asks the server what is *inside* the notes — and a
+query starting with `#` is a tag, answered from the local index instead:
+clicking a tag anywhere in the editor puts it there.
 
 Below 46rem the layout is one screen at a time: the note list is the home
 screen and a note is pushed over it as a history entry, so the back gesture of

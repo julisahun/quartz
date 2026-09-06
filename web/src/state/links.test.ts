@@ -1,22 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { LinkIndex, parseLinks, retargetLinks } from './links'
+import { parseLinks, retargetLinks } from './links'
 import { buildResolver } from './notes'
 import type { FileMeta } from '../vault/types'
-import { encodeText } from '../vault/types'
 
 function meta(path: string, hash: string): FileMeta {
   return { path, hash, size: 0, mtime: 0 }
-}
-
-/** A vault made of literal note bodies, hashed by their own text. */
-function vault(notes: Record<string, string>) {
-  const files = Object.entries(notes).map(([path, body]) => meta(path, `h:${body}`))
-  const read = async (path: string) => {
-    const body = notes[path]
-    if (body === undefined) throw new Error(`no such file: ${path}`)
-    return encodeText(body)
-  }
-  return { files, read }
 }
 
 describe('parseLinks', () => {
@@ -59,104 +47,6 @@ describe('parseLinks', () => {
     // What the editor's parser does too: it gives up at the stray "[" and
     // tries again from the next position, so the link here is [[b]].
     expect(parseLinks('[[a [[b]]').map((r) => r.target)).toEqual(['b'])
-  })
-})
-
-describe('LinkIndex', () => {
-  it('lists the notes pointing at a note, with their line', async () => {
-    const { files, read } = vault({
-      'daily/Monday.md': 'ran through [[Pi setup]]',
-      'notes/Ideas.md': 'maybe\n\nsee [[pi setup]] again',
-      'notes/Pi setup.md': '# Pi setup',
-    })
-    const index = new LinkIndex()
-    await index.rebuild(files, read)
-
-    // Sorted by title, so the list does not reshuffle as files change.
-    expect(index.to('notes/Pi setup.md')).toEqual([
-      { path: 'notes/Ideas.md', title: 'Ideas', line: 3, context: 'see [[pi setup]] again' },
-      { path: 'daily/Monday.md', title: 'Monday', line: 1, context: 'ran through [[Pi setup]]' },
-    ])
-  })
-
-  it('counts two links on one line once, and two lines twice', async () => {
-    const { files, read } = vault({
-      'A.md': '[[B]] and [[B]] again\nand [[B]] below',
-      'B.md': '',
-    })
-    const index = new LinkIndex()
-    await index.rebuild(files, read)
-    expect(index.to('B.md').map((b) => b.line)).toEqual([1, 2])
-  })
-
-  it('ignores self-links and links to attachments', async () => {
-    const { files, read } = vault({
-      'A.md': 'about [[A]] and ![[logo.png]]',
-      'attachments/logo.png': 'PNG',
-    })
-    const index = new LinkIndex()
-    await index.rebuild(files, read)
-    expect(index.to('A.md')).toEqual([])
-    expect(index.to('attachments/logo.png')).toEqual([])
-  })
-
-  it('re-reads only the notes whose hash moved', async () => {
-    const notes: Record<string, string> = { 'A.md': '[[B]]', 'B.md': '', 'C.md': 'nothing' }
-    const reads: string[] = []
-    const read = async (path: string) => {
-      reads.push(path)
-      return encodeText(notes[path])
-    }
-    const filesOf = () => Object.entries(notes).map(([p, b]) => meta(p, `h:${b}`))
-
-    const index = new LinkIndex()
-    await index.rebuild(filesOf(), read)
-    expect(reads).toEqual(['A.md', 'B.md', 'C.md'])
-
-    reads.length = 0
-    notes['C.md'] = 'now [[B]] too'
-    await index.rebuild(filesOf(), read)
-    expect(reads).toEqual(['C.md'])
-    expect(index.to('B.md').map((b) => b.path)).toEqual(['A.md', 'C.md'])
-  })
-
-  it('drops a note that has gone away', async () => {
-    const notes: Record<string, string> = { 'A.md': '[[B]]', 'B.md': '' }
-    const filesOf = () => Object.entries(notes).map(([p, b]) => meta(p, `h:${b}`))
-    const read = async (path: string) => encodeText(notes[path])
-
-    const index = new LinkIndex()
-    await index.rebuild(filesOf(), read)
-    expect(index.to('B.md')).toHaveLength(1)
-
-    delete notes['A.md']
-    await index.rebuild(filesOf(), read)
-    expect(index.to('B.md')).toEqual([])
-  })
-
-  it('resolves links written before their target existed', async () => {
-    const notes: Record<string, string> = { 'A.md': 'see [[Later]]' }
-    const filesOf = () => Object.entries(notes).map(([p, b]) => meta(p, `h:${b}`))
-    const read = async (path: string) => encodeText(notes[path])
-
-    const index = new LinkIndex()
-    await index.rebuild(filesOf(), read)
-    expect(index.to('Later.md')).toEqual([])
-
-    notes['Later.md'] = '# Later'
-    await index.rebuild(filesOf(), read)
-    expect(index.to('Later.md').map((b) => b.path)).toEqual(['A.md'])
-  })
-
-  it('survives a note that is listed but not stored on this device', async () => {
-    const files = [meta('A.md', 'h1'), meta('B.md', 'h2')]
-    const read = async (path: string) => {
-      if (path === 'A.md') throw new Error('evicted')
-      return encodeText('[[A]]')
-    }
-    const index = new LinkIndex()
-    await index.rebuild(files, read)
-    expect(index.to('A.md').map((b) => b.path)).toEqual(['B.md'])
   })
 })
 

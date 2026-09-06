@@ -4,6 +4,7 @@ import { useSwipeBack } from './ui/gestures'
 import { useIsPhone } from './ui/media'
 import { Notices } from './ui/Notices'
 import { NoteEditor } from './ui/NoteEditor'
+import { QuickOpen } from './ui/QuickOpen'
 import { Sidebar } from './ui/Sidebar'
 import { StatusBar } from './ui/StatusBar'
 import { LoginScreen } from './ui/LoginScreen'
@@ -19,6 +20,7 @@ export function App() {
   const isPhone = useIsPhone()
 
   const [livePreview, setLivePreview] = useState(() => localStorage.getItem('livePreview') !== 'off')
+  const [quickOpen, setQuickOpen] = useState(false)
   const { screen, showNote, back } = useScreens(isPhone)
   // The node, not a ref: the pane only exists once boot leaves the splash, and
   // an effect keyed on a ref object would never see it arrive.
@@ -39,6 +41,25 @@ export function App() {
   useEffect(() => {
     localStorage.setItem('livePreview', livePreview ? 'on' : 'off')
   }, [livePreview])
+
+  // ⌘P — Ctrl-P away from a Mac — is the switcher, as it is in every editor
+  // that has one. It is caught before the editor sees it, and it costs the
+  // browser's print dialog, which is the trade all of them have made.
+  //
+  // Only the platform's own modifier: on a Mac, Ctrl-P is still the emacs
+  // "up a line" that CodeMirror binds inside the editor, and taking that away
+  // from the people who use it would not be worth a second way to do this.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'p' || event.altKey || event.shiftKey) return
+      if (isMac() ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey) return
+      event.preventDefault()
+      event.stopPropagation()
+      setQuickOpen((open) => !open)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
 
   useEffect(() => {
     document.title = currentPath ? `${noteTitle(currentPath)} — quartz` : 'quartz'
@@ -75,9 +96,14 @@ export function App() {
       </main>
       <Notices />
       <StatusBar livePreview={livePreview} onToggleLivePreview={() => setLivePreview((v) => !v)} />
+      <QuickOpen open={quickOpen} onClose={() => setQuickOpen(false)} onOpened={showNote} />
       <Dialogs />
     </div>
   )
+}
+
+function isMac(): boolean {
+  return /Mac|iP(hone|od|ad)/.test(navigator.platform || navigator.userAgent)
 }
 
 type Screen = 'list' | 'note'

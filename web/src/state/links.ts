@@ -1,16 +1,15 @@
 /**
- * Backlinks: which notes point at the one you are reading.
+ * Reading and rewriting the `[[links]]` in a note's source.
  *
- * Computed here, from the local vault, rather than on the server. Every note
- * is already on the device — that is what makes editing work offline — and
- * resolving a `[[link]]` has exactly one implementation (`buildResolver`),
- * shared with the editor. A server-side link table would need a second copy of
- * those rules in Go, and a backlink that disagreed with the link you clicked
- * would open the wrong note.
+ * Links are read on the client, from the local vault, rather than on the
+ * server. Every note is already on the device — that is what makes editing
+ * work offline — and resolving a `[[link]]` has exactly one implementation
+ * (`buildResolver`), shared with the editor. A server-side link table would
+ * need a second copy of those rules in Go, and a backlink that disagreed with
+ * the link you clicked would open the wrong note.
+ *
+ * What is done with them afterwards is `VaultIndex`, in `vault-index.ts`.
  */
-
-import { decodeText, type FileMeta } from '../vault/types'
-import { buildResolver, isNote, noteTitle } from './notes'
 
 /** A `[[link]]` as written, before it is resolved against the vault. */
 export interface LinkRef {
@@ -69,10 +68,10 @@ interface ScannedLine {
 /**
  * Splits a note into lines and marks which of them are code.
  *
- * Reading and rewriting links share this, so the two can never disagree about
- * whether a `[[link]]` inside a fence counts.
+ * Reading links, rewriting them and collecting tags all share this, so no two
+ * of them can disagree about whether something inside a fence counts.
  */
-function scan(text: string): ScannedLine[] {
+export function scan(text: string): ScannedLine[] {
   const out: ScannedLine[] = []
   let fence = ''
 
@@ -167,86 +166,4 @@ function shaped(written: string, opts: Retarget): string {
   const short = !written.includes('/') && opts.shortNameWorks
   const target = short ? opts.to.slice(opts.to.lastIndexOf('/') + 1) : opts.to
   return keepExtension ? target : target.replace(/\.md$/i, '')
-}
-
-/**
- * The vault's links, kept up to date as files change.
- *
- * Parsing is incremental — a note is re-read only when its hash moves — so a
- * sync that touched one file costs one read. Resolution is redone every time,
- * because a link's target depends on which notes exist: creating `Pi setup.md`
- * turns every `[[Pi setup]]` written before it into a real link.
- */
-export class LinkIndex {
-  private parsed = new Map<string, { hash: string; refs: LinkRef[] }>()
-  private backlinks = new Map<string, Backlink[]>()
-
-  async rebuild(files: FileMeta[], read: (path: string) => Promise<Uint8Array>): Promise<void> {
-    const notes = files.filter((f) => isNote(f.path))
-    const live = new Set<string>()
-
-    for (const note of notes) {
-      live.add(note.path)
-      if (this.parsed.get(note.path)?.hash === note.hash) continue
-      let refs: LinkRef[] = []
-      try {
-        refs = parseLinks(decodeText(await read(note.path)))
-      } catch {
-        // Listed but not readable — evicted, or deleted mid-scan. It links to
-        // nothing until it comes back, which beats failing the whole rebuild.
-      }
-      this.parsed.set(note.path, { hash: note.hash, refs })
-    }
-
-    for (const path of [...this.parsed.keys()]) {
-      if (!live.has(path)) this.parsed.delete(path)
-    }
-    this.resolve(files)
-  }
-
-  /** Every note linking to `path`, by title then by where the link appears. */
-  to(path: string): Backlink[] {
-    return this.backlinks.get(path) ?? []
-  }
-
-  private resolve(files: FileMeta[]): void {
-    const resolve = buildResolver(files)
-    const map = new Map<string, Backlink[]>()
-
-    for (const [from, { refs }] of this.parsed) {
-      for (const ref of refs) {
-        const target = resolve(ref.target)
-        // A link to an attachment is not a mention of a note, and a note that
-        // links to itself has not been mentioned anywhere else.
-        if (!target || target === from || !isNote(target)) continue
-
-        const list = map.get(target) ?? []
-        // Two links to the same note on one line are one mention of it.
-        if (list.some((b) => b.path === from && b.line === ref.line)) continue
-        list.push({ path: from, title: noteTitle(from), line: ref.line, context: ref.context })
-        map.set(target, list)
-      }
-    }
-
-    for (const list of map.values()) {
-      list.sort((a, b) => a.title.localeCompare(b.title) || a.line - b.line)
-    }
-    this.backlinks = map
-  }
-}
-
-/**
- * Whether two backlink lists say the same thing.
- *
- * Every rebuild produces fresh arrays, and a rebuild happens on each autosave —
- * without this the panel would re-render every half second of typing.
- */
-export function sameBacklinks(a: Backlink[], b: Backlink[]): boolean {
-  return (
-    a.length === b.length &&
-    a.every((x, i) => {
-      const y = b[i]
-      return x.path === y.path && x.line === y.line && x.context === y.context
-    })
-  )
 }

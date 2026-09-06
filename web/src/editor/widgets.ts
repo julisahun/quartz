@@ -1,4 +1,6 @@
 import { EditorView, WidgetType } from '@codemirror/view'
+import { frontmatterTags, parseFrontmatter, type Property } from '../state/frontmatter'
+import { renderInline } from './inline'
 
 /** A clickable task checkbox in place of `- [ ]`. */
 export class CheckboxWidget extends WidgetType {
@@ -178,11 +180,94 @@ function rowElement(
   const tr = document.createElement('tr')
   splitRow(line).forEach((cell, i) => {
     const el = document.createElement(cellTag)
-    // Inline markup inside cells is rendered as plain text on purpose: the
-    // raw source is one keystroke away, and a half-parser here would lie.
-    el.textContent = cell.replace(/\*\*(.+?)\*\*/g, '$1').replace(/`(.+?)`/g, '$1')
+    // Cells carry the same markup as the rest of a note — this vault's tables
+    // are half wikilinks — so they are rendered rather than printed. A cell
+    // showing "[[acero-del-manantial|Acero]]" is a table you cannot read.
+    renderInline(cell, el)
     if (alignments[i]) el.style.textAlign = alignments[i]
     tr.appendChild(el)
   })
+  return tr
+}
+
+/**
+ * A note's frontmatter, as the properties it is.
+ *
+ * Without this the block is not neutral, it is wrong: `---` parses as a
+ * horizontal rule, the YAML under it as a paragraph, and the closing `---`
+ * turns that paragraph into a setext heading. What the reader saw was their
+ * metadata set in 24pt.
+ */
+export class PropertiesWidget extends WidgetType {
+  constructor(private readonly source: string) {
+    super()
+  }
+
+  eq(other: PropertiesWidget): boolean {
+    return other.source === this.source
+  }
+
+  toDOM(): HTMLElement {
+    const wrap = document.createElement('div')
+    wrap.className = 'cm-props'
+    const props = parseFrontmatter(this.source)
+
+    if (props.length === 0) {
+      const empty = document.createElement('div')
+      empty.className = 'cm-props-empty'
+      empty.textContent = 'No properties'
+      wrap.appendChild(empty)
+      return wrap
+    }
+
+    const table = document.createElement('table')
+    table.className = 'cm-props-table'
+    const body = document.createElement('tbody')
+    for (const prop of props) body.appendChild(propertyRow(prop))
+    table.appendChild(body)
+    wrap.appendChild(table)
+    return wrap
+  }
+
+  ignoreEvent(): boolean {
+    return false
+  }
+}
+
+function propertyRow(prop: Property): HTMLTableRowElement {
+  const tr = document.createElement('tr')
+  const key = document.createElement('th')
+  key.textContent = prop.key
+  tr.appendChild(key)
+
+  const cell = document.createElement('td')
+  const tags = frontmatterTags([prop])
+
+  if (tags.length > 0) {
+    // Declared without the "#", but they are the same tags the body writes and
+    // the sidebar indexes, so they are the same chips and click the same way.
+    for (const tag of tags) {
+      const chip = document.createElement('span')
+      chip.className = 'cm-tag'
+      chip.dataset.tag = tag
+      chip.textContent = `#${tag}`
+      cell.appendChild(chip)
+      cell.appendChild(document.createTextNode(' '))
+    }
+  } else if (Array.isArray(prop.value)) {
+    const list = document.createElement('div')
+    list.className = 'cm-props-list'
+    for (const item of prop.value) {
+      const row = document.createElement('div')
+      row.className = 'cm-props-item'
+      renderInline(item, row)
+      list.appendChild(row)
+    }
+    cell.appendChild(list)
+  } else {
+    renderInline(prop.value, cell)
+  }
+
+  tr.appendChild(cell)
   return tr
 }

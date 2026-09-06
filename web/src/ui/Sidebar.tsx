@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SearchHit } from '../api/client'
+import { folderOf, noteTitle } from '../state/notes'
+import { persisted } from '../state/persist'
 import { useApp } from '../state/store'
-import { folderOf, isConflictCopy, isNote, noteTitle } from '../state/notes'
+import { tagMatches } from '../state/tags'
+import { buildTree, foldersTo } from '../state/tree'
 import { vaultHint } from '../state/vaults'
 import { foldersSupported } from '../vault/folders'
 import {
-  promptDelete,
   promptForgetFolder,
   promptNewNote,
   promptPromote,
@@ -13,13 +15,11 @@ import {
 } from './actions'
 import { AppBar } from './AppBar'
 import { openMenu } from './dialogs'
-import { usePullToRefresh, useSwipeToReveal } from './gestures'
-import { ChevronRight, Ellipsis, Plus, Refresh, Trash } from './icons'
+import { usePullToRefresh } from './gestures'
+import { Ellipsis, Plus, Refresh } from './icons'
 import { useIsPhone } from './media'
+import { NoteRow, NoteTree } from './NoteTree'
 import { VaultSwitcher } from './VaultSwitcher'
-
-/** How much of the delete button a swipe uncovers. */
-const REVEAL_PX = 92
 
 interface Props {
   onNavigate: () => void
@@ -32,6 +32,9 @@ export function Sidebar({ onNavigate, inert }: Props) {
   const vaults = useApp((s) => s.vaults)
   const currentVault = useApp((s) => s.currentVault)
   const currentPath = useApp((s) => s.currentPath)
+  const tags = useApp((s) => s.tags)
+  const query = useApp((s) => s.query)
+  const setQuery = useApp((s) => s.setQuery)
   const open = useApp((s) => s.open)
   const search = useApp((s) => s.search)
   const syncNow = useApp((s) => s.syncNow)
@@ -40,37 +43,47 @@ export function Sidebar({ onNavigate, inert }: Props) {
   const user = useApp((s) => s.user)
   const isPhone = useIsPhone()
 
-  const [query, setQuery] = useState('')
   const [hits, setHits] = useState<SearchHit[] | undefined>()
   const [swiped, setSwiped] = useState<string | undefined>()
   const [listFrame, setListFrame] = useState<HTMLDivElement | null>(null)
   const [listScroller, setListScroller] = useState<HTMLDivElement | null>(null)
 
+  // A query starting with "#" is a question about tags, answered from the
+  // local index rather than by the server: exact, and right offline.
+  const tagFilter = query.startsWith('#') ? query.slice(1).trim() : undefined
+
   useEffect(() => {
     const q = query.trim()
-    if (!q) {
+    if (!q || tagFilter !== undefined) {
       setHits(undefined)
       return
     }
     // Search as you type, but only after a pause: the server is a Pi.
     const timer = setTimeout(() => void search(q).then(setHits), 180)
     return () => clearTimeout(timer)
-  }, [query, search])
+  }, [query, search, tagFilter])
 
   const refresh = useCallback(() => syncNow(), [syncNow])
   usePullToRefresh(listScroller, listFrame, { enabled: isPhone, onRefresh: refresh })
 
-  const grouped = useMemo(() => {
-    const notes = files.filter((f) => isNote(f.path))
-    const byFolder = new Map<string, typeof notes>()
-    for (const note of notes) {
-      const folder = folderOf(note.path)
-      const list = byFolder.get(folder) ?? []
-      list.push(note)
-      byFolder.set(folder, list)
+  const tree = useMemo(() => buildTree(files), [files])
+  const { collapsed, toggle } = useFolders(currentVault, currentPath)
+
+  const tagged = useMemo(() => {
+    if (!tagFilter) return []
+    const paths = new Set<string>()
+    for (const summary of tags) {
+      if (!tagMatches(summary.tag, tagFilter)) continue
+      for (const path of summary.paths) paths.add(path)
     }
-    return [...byFolder.entries()].sort(([a], [b]) => a.localeCompare(b))
-  }, [files])
+    return [...paths].sort((a, b) => noteTitle(a).localeCompare(noteTitle(b)))
+  }, [tags, tagFilter])
+
+  const suggestions = useMemo(() => {
+    if (tagFilter === undefined) return []
+    const needle = tagFilter.toLowerCase()
+    return tags.filter((t) => t.key.includes(needle)).slice(0, 30)
+  }, [tags, tagFilter])
 
   async function newNote() {
     const path = await promptNewNote()
@@ -116,44 +129,82 @@ export function Sidebar({ onNavigate, inert }: Props) {
     return vaults.find((v) => v.id === currentVault)?.name ?? 'quartz'
   }
 
-  const rows = hits ? (
-    hits.length === 0 ? (
-      <p className="empty">Nothing matches.</p>
-    ) : (
-      hits.map((hit) => (
-        <NoteRow
-          key={hit.path}
-          path={hit.path}
-          title={hit.title || noteTitle(hit.path)}
-          snippet={hit.snippet}
-          active={hit.path === currentPath}
-          swipeable={isPhone}
-          open={swiped === hit.path}
-          onOpenChange={(next) => setSwiped(next ? hit.path : undefined)}
-          onChoose={choose}
-        />
-      ))
+  const rowProps = {
+    swipeable: isPhone,
+    onChoose: choose,
+  }
+
+  let rows
+  if (tagFilter !== undefined) {
+    rows = (
+      <>
+        {suggestions.length > 0 && (
+          <div className="tag-cloud">
+            {suggestions.map((summary) => (
+              <button
+                key={summary.key}
+                className={`tag-chip ${summary.key === tagFilter.toLowerCase() ? 'active' : ''}`}
+                onClick={() => setQuery(`#${summary.tag}`)}
+              >
+                #{summary.tag}
+                <span className="tag-chip-count">{summary.paths.length}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {tagFilter === '' ? (
+          <p className="empty">{tags.length ? 'Pick a tag.' : 'No tags in this vault yet.'}</p>
+        ) : tagged.length === 0 ? (
+          <p className="empty">Nothing is tagged #{tagFilter}.</p>
+        ) : (
+          tagged.map((path) => (
+            <NoteRow
+              key={path}
+              path={path}
+              title={noteTitle(path)}
+              folder={folderOf(path)}
+              active={path === currentPath}
+              open={swiped === path}
+              onOpenChange={(next) => setSwiped(next ? path : undefined)}
+              {...rowProps}
+            />
+          ))
+        )}
+      </>
     )
-  ) : (
-    grouped.map(([folder, notes]) => (
-      <section key={folder}>
-        {folder && <h3 className="folder">{folder}</h3>}
-        {notes.map((note) => (
+  } else if (hits) {
+    rows =
+      hits.length === 0 ? (
+        <p className="empty">Nothing matches.</p>
+      ) : (
+        hits.map((hit) => (
           <NoteRow
-            key={note.path}
-            path={note.path}
-            title={noteTitle(note.path)}
-            conflict={isConflictCopy(note.path)}
-            active={note.path === currentPath}
-            swipeable={isPhone}
-            open={swiped === note.path}
-            onOpenChange={(next) => setSwiped(next ? note.path : undefined)}
-            onChoose={choose}
+            key={hit.path}
+            path={hit.path}
+            title={hit.title || noteTitle(hit.path)}
+            folder={folderOf(hit.path)}
+            snippet={hit.snippet}
+            active={hit.path === currentPath}
+            open={swiped === hit.path}
+            onOpenChange={(next) => setSwiped(next ? hit.path : undefined)}
+            {...rowProps}
           />
-        ))}
-      </section>
-    ))
-  )
+        ))
+      )
+  } else {
+    rows = (
+      <NoteTree
+        nodes={tree}
+        depth={0}
+        currentPath={currentPath}
+        collapsed={collapsed}
+        onToggle={toggle}
+        swiped={swiped}
+        onSwipe={setSwiped}
+        {...rowProps}
+      />
+    )
+  }
 
   return (
     <aside className="sidebar" inert={inert}>
@@ -174,7 +225,7 @@ export function Sidebar({ onNavigate, inert }: Props) {
         <input
           className="search"
           value={query}
-          placeholder="Search notes"
+          placeholder="Search, or #tag"
           onChange={(e) => setQuery(e.target.value)}
           type="search"
           enterKeyHint="search"
@@ -192,7 +243,7 @@ export function Sidebar({ onNavigate, inert }: Props) {
         </div>
         <div className="note-list" ref={setListScroller} onScroll={() => setSwiped(undefined)}>
           {rows}
-          {files.length === 0 && !hits && <p className="empty">No notes yet.</p>}
+          {files.length === 0 && !hits && tagFilter === undefined && <p className="empty">No notes yet.</p>}
         </div>
       </div>
 
@@ -205,68 +256,48 @@ export function Sidebar({ onNavigate, inert }: Props) {
   )
 }
 
-interface RowProps {
-  path: string
-  title: string
-  snippet?: string
-  conflict?: boolean
-  active: boolean
-  swipeable: boolean
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onChoose: (path: string) => void
-}
+/**
+ * Which folders are closed, remembered per vault.
+ *
+ * Opening a note opens the folders it is in — but only when the note changes,
+ * so closing the folder you are working in does not spring back open under
+ * your hand.
+ */
+function useFolders(vault: string | undefined, currentPath: string | undefined) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
+  const expandedFor = useRef<string | undefined>(undefined)
 
-function NoteRow({ path, title, snippet, conflict, active, swipeable, open, onOpenChange, onChoose }: RowProps) {
-  const [zone, setZone] = useState<HTMLDivElement | null>(null)
-  const [action, setAction] = useState<HTMLButtonElement | null>(null)
-  const handleOpenChange = useCallback((next: boolean) => onOpenChange(next), [onOpenChange])
-  useSwipeToReveal(zone, action, { enabled: swipeable, width: REVEAL_PX, open, onOpenChange: handleOpenChange })
+  useEffect(() => {
+    setCollapsed(new Set(vault ? persisted.collapsed(vault) : []))
+    expandedFor.current = undefined
+  }, [vault])
 
-  return (
-    <div className={`row-wrap ${open ? 'revealed' : ''}`} ref={setZone}>
-      <button
-        ref={setAction}
-        className="row-action"
-        tabIndex={open ? 0 : -1}
-        aria-hidden={!open}
-        onClick={() => void promptDelete(path).then(() => onOpenChange(false))}
-      >
-        <Trash />
-        <span>Delete</span>
-      </button>
-      <button
-        className={`note-row ${active ? 'active' : ''}`}
-        onClick={() => (open ? onOpenChange(false) : onChoose(path))}
-      >
-        <span className="note-text">
-          <span className="note-title">
-            {title}
-            {conflict && <span className="tag">conflict</span>}
-          </span>
-          {snippet !== undefined && (
-            <span
-              className="note-snippet"
-              // The snippet comes from the server's own FTS output, which
-              // marks matches with <mark> and escapes nothing else.
-              dangerouslySetInnerHTML={{ __html: sanitiseSnippet(snippet) }}
-            />
-          )}
-        </span>
-        <span className="note-chevron" aria-hidden="true">
-          <ChevronRight />
-        </span>
-      </button>
-    </div>
+  const apply = useCallback(
+    (next: Set<string>) => {
+      setCollapsed(next)
+      if (vault) persisted.setCollapsed(vault, [...next])
+    },
+    [vault],
   )
-}
 
-/** Keeps <mark> from the search snippet and escapes everything else. */
-function sanitiseSnippet(snippet: string): string {
-  return snippet
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/&lt;mark&gt;/g, '<mark>')
-    .replace(/&lt;\/mark&gt;/g, '</mark>')
+  const toggle = useCallback(
+    (path: string) => {
+      const next = new Set(collapsed)
+      if (!next.delete(path)) next.add(path)
+      apply(next)
+    },
+    [collapsed, apply],
+  )
+
+  useEffect(() => {
+    if (!currentPath || expandedFor.current === currentPath) return
+    expandedFor.current = currentPath
+    const shut = foldersTo(currentPath).filter((folder) => collapsed.has(folder))
+    if (shut.length === 0) return
+    const next = new Set(collapsed)
+    for (const folder of shut) next.delete(folder)
+    apply(next)
+  }, [currentPath, collapsed, apply])
+
+  return { collapsed, toggle }
 }

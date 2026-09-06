@@ -13,10 +13,11 @@ import {
 } from '../vault/folders'
 import { isDesktop } from '../vault/tauri-bridge'
 import { decodeText, encodeText, type FileMeta, type VaultStore } from '../vault/types'
-import { LinkIndex, retargetLinks, sameBacklinks, type Backlink } from './links'
+import { retargetLinks, type Backlink } from './links'
 import { buildResolver, isNote, noteTitle, pathForTitle, uniquePath } from './notes'
 import { persisted } from './persist'
 import { detectEviction, requestPersistence } from './storage'
+import { sameBacklinks, sameTags, VaultIndex, type TagSummary } from './vault-index'
 import {
   chooseVault,
   isLocal,
@@ -51,7 +52,7 @@ interface Runtime {
   store: VaultStore
   /** Absent for a folder opened from disk: there is nothing to sync it with. */
   engine?: SyncEngine
-  links: LinkIndex
+  index: VaultIndex
 }
 
 const runtimes = new Map<string, Runtime>()
@@ -60,9 +61,9 @@ let syncTimer: ReturnType<typeof setTimeout> | undefined
 let syncing = false
 let syncAgain = false
 let noticeId = 0
-// Rebuilding the link map is async and files keep moving; only the newest
-// answer is allowed to land.
-let backlinkSeq = 0
+// Rebuilding the index is async and files keep moving; only the newest answer
+// is allowed to land.
+let indexSeq = 0
 
 interface AppState {
   phase: 'loading' | 'login' | 'ready'
@@ -77,6 +78,14 @@ interface AppState {
   pending: number
   /** Notes linking to the open one, newest computation wins. */
   backlinks: Backlink[]
+  /** Every tag in the open vault, and the notes carrying it. */
+  tags: TagSummary[]
+  /**
+   * What the note list is filtered by: free text, or `#tag`. It lives here
+   * rather than in the sidebar because clicking a tag in the editor is what
+   * sets it.
+   */
+  query: string
   sync: SyncState
   lastSyncedAt: number
   notices: Notice[]
@@ -106,6 +115,7 @@ interface AppState {
   blobUrl(path: string): Promise<string | undefined>
   syncNow(): Promise<void>
   search(query: string): Promise<SearchHit[]>
+  setQuery(query: string): void
   dismissNotice(id: number): void
 }
 
@@ -137,7 +147,7 @@ export const useApp = create<AppState>()((set, get) => {
 
     const store = createVaultStore(user, vaultId, isFolderBacked(vaultId))
     if (local) {
-      const runtime = { store, links: new LinkIndex() }
+      const runtime = { store, index: new VaultIndex() }
       runtimes.set(key, runtime)
       return runtime
     }
@@ -154,7 +164,7 @@ export const useApp = create<AppState>()((set, get) => {
         }
       },
     })
-    const runtime = { store, engine, links: new LinkIndex() }
+    const runtime = { store, engine, index: new VaultIndex() }
     runtimes.set(key, runtime)
     return runtime
   }
@@ -168,45 +178,48 @@ export const useApp = create<AppState>()((set, get) => {
     const id = get().currentVault
     const runtime = current()
     if (!id || !runtime) {
-      set({ files: [], pending: 0, backlinks: [] })
+      set({ files: [], pending: 0, backlinks: [], tags: [] })
       return
     }
     const files = await runtime.store.list()
     // Nothing is ever queued for a folder on disk: it is already where it goes.
     const pending = isLocalVault(id) ? 0 : (await runtime.store.pending()).length
     set({ files, pending })
-    scheduleBacklinks()
+    scheduleIndex()
   }
 
   /**
-   * Who points at the open note.
+   * Who points at the open note, and what tags the vault carries.
    *
    * Deliberately not awaited: it reads every note whose hash moved, and the
-   * note you asked for must not wait behind a scan of the vault. The panel
-   * fills in a moment later, and only the newest answer is allowed to land.
+   * note you asked for must not wait behind a scan of the vault. The panel and
+   * the tag list fill in a moment later, and only the newest answer lands.
    */
-  const refreshBacklinks = async () => {
+  const refreshIndex = async () => {
     const runtime = current()
-    const path = get().currentPath
-    const seq = ++backlinkSeq
-    if (!runtime || !path || !isNote(path)) {
-      if (get().backlinks.length) set({ backlinks: [] })
+    const seq = ++indexSeq
+    if (!runtime) {
+      if (get().backlinks.length || get().tags.length) set({ backlinks: [], tags: [] })
       return
     }
-    await runtime.links.rebuild(get().files, (p) => runtime.store.read(p))
-    if (seq !== backlinkSeq) return
-    const next = runtime.links.to(path)
-    if (!sameBacklinks(get().backlinks, next)) set({ backlinks: next })
+    await runtime.index.rebuild(get().files, (p) => runtime.store.read(p))
+    if (seq !== indexSeq) return
+
+    const path = get().currentPath
+    const backlinks = path && isNote(path) ? runtime.index.to(path) : []
+    if (!sameBacklinks(get().backlinks, backlinks)) set({ backlinks })
+    const tags = runtime.index.allTags()
+    if (!sameTags(get().tags, tags)) set({ tags })
   }
 
-  const scheduleBacklinks = () => {
-    void refreshBacklinks().catch((err) => console.warn('backlinks failed', err))
+  const scheduleIndex = () => {
+    void refreshIndex().catch((err) => console.warn('indexing the vault failed', err))
   }
 
   /** The notes whose text mentions `path`, from an up-to-date link map. */
   const linkingNotes = async (runtime: Runtime, path: string): Promise<string[]> => {
-    await runtime.links.rebuild(get().files, (p) => runtime.store.read(p))
-    return [...new Set(runtime.links.to(path).map((b) => b.path))]
+    await runtime.index.rebuild(get().files, (p) => runtime.store.read(p))
+    return [...new Set(runtime.index.to(path).map((b) => b.path))]
   }
 
   const openFirstNote = async () => {
@@ -258,6 +271,8 @@ export const useApp = create<AppState>()((set, get) => {
     unsaved: false,
     pending: 0,
     backlinks: [],
+    tags: [],
+    query: '',
     sync: 'idle',
     lastSyncedAt: 0,
     notices: [],
@@ -332,6 +347,7 @@ export const useApp = create<AppState>()((set, get) => {
         content: '',
         unsaved: false,
         backlinks: [],
+        tags: [],
       })
       // A folder from disk was never the account's, so signing out does not
       // close it — there is still somewhere to be.
@@ -354,7 +370,15 @@ export const useApp = create<AppState>()((set, get) => {
         return
       }
       persisted.setLastVault(id)
-      set({ currentVault: id, currentPath: undefined, content: '', unsaved: false, backlinks: [] })
+      set({
+        currentVault: id,
+        currentPath: undefined,
+        content: '',
+        unsaved: false,
+        backlinks: [],
+        tags: [],
+        query: '',
+      })
 
       const runtime = runtimeFor(id)
       // Eviction is a browser-storage problem. A folder on disk cannot be
@@ -475,6 +499,7 @@ export const useApp = create<AppState>()((set, get) => {
           unsaved: false,
           files: [],
           backlinks: [],
+          tags: [],
         })
         const next = chooseVault(rest, get().user)
         if (next) await get().selectVault(next)
@@ -490,7 +515,7 @@ export const useApp = create<AppState>()((set, get) => {
       try {
         const data = await runtime.store.read(path)
         set({ currentPath: path, content: decodeText(data), unsaved: false })
-        scheduleBacklinks()
+        scheduleIndex()
       } catch {
         notice('error', `${path} is not stored on this device yet`)
       }
@@ -695,6 +720,10 @@ export const useApp = create<AppState>()((set, get) => {
       } catch {
         return localSearch(q, get().files, store)
       }
+    },
+
+    setQuery(query) {
+      set({ query })
     },
 
     dismissNotice(id) {

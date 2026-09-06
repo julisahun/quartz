@@ -154,6 +154,33 @@ Two things fell out of the shape rather than being chosen:
   with nowhere to live, and it would quietly re-download somewhere else. With
   no un-syncing, saying no beats half-doing it.
 
+## Reading a real vault (2026-09-06)
+
+Everything until now was built against a vault of a dozen notes. Pointed at a
+real one — a D&D campaign, a few hundred notes, four folders deep, frontmatter
+on a third of them — four things were wrong at once. Two of them turned out to
+be one bug each in the editor's oldest assumptions; the rest is new work.
+
+| Question | Decision | Notes |
+|---|---|---|
+| Why did clicks land a line low? | **Vertical margins in the editor theme** | CodeMirror measures every block with `getBoundingClientRect()`, which excludes margins, so `margin-top` on a heading line adds space its height map cannot see and every click below that heading is off by the accumulated drift. Padding does the same job inside the box that is measured. `theme.test.ts` fails the build if a margin comes back. |
+| The note list, in a deep vault? | **A real tree, open by default** | The flat list grouped by full path had headings longer than the titles under them. Folders open until closed, closing is remembered per vault, and opening a note opens the folders it is in — but only when the note changes, so closing the folder you are working in does not spring back open. |
+| A second way to open a note? | **⌘P, fuzzy, over the path** | Names and paths only, matched on the device: it never waits on the server, which is the whole point of a switcher. The sidebar's box stays what it was — the server's FTS over what is *inside* the notes. Two boxes because they answer two different questions. |
+| Ctrl-P on a Mac too? | **No** | It is CodeMirror's emacs "up a line" inside the editor. ⌘P on a Mac, Ctrl-P everywhere else. |
+| Why did a table further down not render at all? | **The preview ignored the parser finishing** | CodeMirror parses a screenful and does the rest in the background; the transaction carrying the finished tree changes neither the document nor the selection, which were the only two things the decoration field watched. Everything past the first screen of a long note stayed raw markdown until a keystroke happened to rebuild it. The field now watches the tree as well. |
+| Frontmatter? | **Rendered as properties** | It was not neutral before, it was wrong: `---` parsed as a horizontal rule, the YAML as a paragraph, and the closing `---` turned that paragraph into a setext heading — a note's metadata set in 24pt. It now renders as a key/value table and gives the YAML back when the cursor moves into it. |
+| Which YAML? | **A subset, and honest about it** | Scalars, lists, inline `[a, b]` and block scalars (`>-`, `\|`) cover everything Obsidian writes. Anything else is shown as the lines it was written on rather than guessed at. A real YAML parser is a dependency and a second definition of what a note is. |
+| Found how? | **By scanning the document, not from the parse** | The markdown parser sees one line at a time and cannot look ahead for the closing `---`; and a block that is not closed yet is not frontmatter, it is a note someone has just started typing. The nodes inside the range are then skipped, since every reading the parser has of them is wrong. |
+| Markup inside table cells? | **Rendered** | Half of this vault's tables are `[[wikilinks]]`, and a cell reading `[[medalla-del-tratado\|Medalla]]` is a table you cannot read. Cells get a small second renderer — emphasis, code, links, tags, one level of nesting — and anything it does not recognise stays the text it is. The links carry the same `data-` attributes the editor's own click handler already follows. |
+| `#tags`? | **Yes: a node, an index, and a filter** | Parsed into a real syntax node like `[[wikilinks]]`, so a tag inside a fence is never seen at all. The vault index collects them in the same pass that builds the backlinks, so tags cost no extra read. Clicking one filters the note list. |
+| What counts as a tag? | **Obsidian's rule** | Start of a line or after whitespace, so `https://host/#anchor` and `[text](#heading)` are not tags; unicode letters, digits, `_`, `-` and `/`; never all digits, which keeps "issue #1" out. Frontmatter `tags:` counts as well, and shows as the same chips. |
+| Where are tags answered? | **The local index, never the server** | FTS5 strips the `#`, so asking the server for `#objeto` would also match every note saying "objeto". The index is exact, works offline, and knows how many notes carry each tag. |
+| Syntax highlighting in fences? | **Ten languages, chosen by hand** | `@codemirror/language-data` knows a hundred and loads each from its own chunk — but the service worker precaches every chunk in the build, which is what makes the app work offline, so lazy loading would become "download all hundred on install", on a phone. Ten costs ~130 KiB of precache. A fence in anything else is still legible, just uncoloured. |
+
+Not done: the properties table is read-only — editing a property means editing
+the YAML, which is one click away and is what Obsidian's source mode does too.
+There is no tag pane, and no renaming a tag across the vault.
+
 ## Decisions taken while building
 
 - **Pure-Go SQLite** (`modernc.org/sqlite`) rather than `mattn/go-sqlite3`, so

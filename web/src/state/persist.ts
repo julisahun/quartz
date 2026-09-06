@@ -15,6 +15,7 @@ const KEYS = {
   vaults: 'quartz.vaults',
   lastVault: 'quartz.lastVault',
   token: 'quartz.token',
+  collapsed: 'quartz.collapsed',
 } as const
 
 function read(key: string): string | undefined {
@@ -65,6 +66,24 @@ export const persisted = {
     }
   },
   setVaults: (vaults: VaultSummary[]) => write(KEYS.vaults, JSON.stringify(vaults)),
+
+  /**
+   * Which folders are closed in a vault's sidebar. Folders are open until
+   * someone closes one, so it is the closing that is worth remembering — and
+   * per vault, since a folder tree belongs to the vault it is in.
+   */
+  collapsed(vault: string): string[] {
+    const raw = read(`${KEYS.collapsed}.${vault}`)
+    if (!raw) return []
+    try {
+      const paths: unknown = JSON.parse(raw)
+      return Array.isArray(paths) ? paths.filter((p): p is string => typeof p === 'string') : []
+    } catch {
+      return []
+    }
+  },
+  setCollapsed: (vault: string, paths: string[]) =>
+    write(`${KEYS.collapsed}.${vault}`, JSON.stringify(paths)),
 
   /**
    * Forgets who was signed in, without touching the vaults themselves: the

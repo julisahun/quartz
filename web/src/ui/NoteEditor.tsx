@@ -62,6 +62,12 @@ export function NoteEditor({ livePreview, onToggleLivePreview, onBack }: Props) 
           }
         },
         openUrl: (url) => window.open(url, '_blank', 'noopener,noreferrer'),
+        openTag: (tag) => {
+          // A tag is a question about the vault, and the note list is where it
+          // gets answered — so on a phone, clicking one goes back to it.
+          useApp.getState().setQuery(`#${tag}`)
+          if (isPhone) onBack()
+        },
       }),
     })
 
@@ -78,7 +84,7 @@ export function NoteEditor({ livePreview, onToggleLivePreview, onBack }: Props) 
       view.current = null
       setToolbarView(null)
     }
-  }, [currentPath, livePreview, isPhone])
+  }, [currentPath, livePreview, isPhone, onBack])
 
   // A pulled change to the open note: replace the text without disturbing the
   // cursor more than necessary.

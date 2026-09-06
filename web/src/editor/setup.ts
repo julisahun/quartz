@@ -2,7 +2,9 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirro
 import { insertNewlineContinueMarkup, markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { EditorState, type Extension } from '@codemirror/state'
 import { EditorView, keymap, placeholder } from '@codemirror/view'
+import { codeLanguages } from './languages'
 import { insertAttachments, toggleWrap } from './commands'
+import { Hashtag } from './hashtag'
 import { livePreview, type LivePreviewConfig } from './live-preview'
 import { keyboardAware } from './mobile'
 import { editorTheme, highlighting } from './theme'
@@ -29,7 +31,7 @@ export function editorExtensions(config: EditorConfig): Extension[] {
       ...historyKeymap,
       indentWithTab,
     ]),
-    markdown({ base: markdownLanguage, extensions: [Wikilink] }),
+    markdown({ base: markdownLanguage, extensions: [Wikilink, Hashtag], codeLanguages }),
     EditorView.lineWrapping,
     placeholder('Start writing…'),
     editorTheme,
