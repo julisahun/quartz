@@ -315,6 +315,52 @@ What fell out of it:
   store does — but boot opens a vault before anything is on screen, so the
   store hands the question back up rather than reaching down into the dialogs.
 
+## Files that never arrived (2026-09-07)
+
+talaisa loaded partway on the phone and stayed that way. One line did it:
+`pull` advanced the sync cursor to the journal's `head` rather than to the last
+entry it had actually applied, so the first short page of a catch-up declared
+the whole journal consumed. The server pages at 5000 entries, entries count
+edits rather than files, and nothing prunes them — so a device a fortnight
+behind skipped everything past the first page and had no way to find out: its
+cursor said it was caught up.
+
+The damage came in three shapes, only one of which looked like a missing file.
+A file whose entries all fell in the gap never arrived. One edited in the gap
+sat there silently out of date. One deleted in the gap stayed on the device —
+and stayed writable, so editing it pushed it back to the server under "an edit
+beats a delete", and a note deleted on the laptop came back for everybody.
+
+| Question | Decision | Notes |
+|---|---|---|
+| Where does the cursor come from? | **The last entry applied** | Read off the page, never from `head`. A server that miscounts `head` or `more` now costs a round trip rather than a file. |
+| How does a fix reach damage already done? | **A repair marker** | A store flag; a device whose value is stale reconciles against the manifest once. The journal cannot describe its own gaps, so nothing else could have found them. |
+| Is `reconcile` a repair tool? | **It is now** | It answered only for the files the manifest listed, and read any local difference as a two-writer conflict. Neither holds for a device that is merely behind. |
+| Can an empty manifest empty a device? | **No** | The server creates a vault's directory if it is missing, so a disk that failed to mount on the Pi serves an empty manifest. Deletions are ignored unless the manifest lists something. |
+| Rebuild `index.sqlite` to heal instead? | **No** | It does force every device to reconcile, but until this change reconcile turned every out-of-date file into a conflict copy and pushed it — the workaround littered the vault it was meant to repair. |
+
+What fell out of it:
+
+- **Reconcile is two-way.** It has to answer for local files the manifest does
+  not list, or it cannot repair anything. A clean, already-pushed file the
+  server no longer has is a delete this device slept through; an unpushed one
+  is still ours to send, and a locally edited one keeps the existing rule that
+  an edit beats a delete.
+- **An out-of-date file is not a conflict.** `local.hash === local.baseHash`
+  over a non-empty base means the server confirmed those bytes once and has
+  moved on since; there is nothing local at stake. Only an unpushed or locally
+  edited difference is a genuine two-writer conflict — which is also what made
+  a rebuilt index deposit a sidecar next to every file on every device.
+- **A pending delete survives a rebuilt index.** Reconcile used to download the
+  file back over the tombstone, undoing a delete that had not been pushed yet.
+  It now follows the same rule as the journal path.
+- **The fake server pages.** `FakeApi.changes` returned `more: false`
+  unconditionally, which is the whole reason no test caught this. It now
+  computes `more` exactly as the Go handler does, and takes a page limit.
+- **The slowness is untouched.** Files are still fetched one request per
+  journal entry, awaited one at a time — which is what let a device fall
+  thousands of entries behind to begin with, but is a separate change.
+
 ## Decisions taken while building
 
 - **Pure-Go SQLite** (`modernc.org/sqlite`) rather than `mattn/go-sqlite3`, so

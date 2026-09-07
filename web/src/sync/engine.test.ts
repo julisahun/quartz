@@ -204,6 +204,164 @@ describe('sync engine', () => {
     expect(await desktop.read(copy!)).toBe('local side\n')
   })
 
+  it('applies every page of a journal it is far behind', async () => {
+    const laptop = new Device(server, 'laptop')
+    const phone = new Device(server, 'phone')
+    // Small enough to page, which the real server does at 5000 entries.
+    phone.api.pageLimit = 2
+    await phone.engine.sync()
+
+    for (let i = 0; i < 6; i++) {
+      await laptop.write(`note-${i}.md`, `# ${i}\n`)
+    }
+    await laptop.engine.sync()
+
+    await phone.engine.sync()
+    expect(await phone.paths()).toHaveLength(6)
+    expect(await phone.read('note-5.md')).toBe('# 5\n')
+  })
+
+  it('does not strand a file whose only journal entry is past the first page', async () => {
+    const laptop = new Device(server, 'laptop')
+    await laptop.write('early.md', 'v1\n')
+    await laptop.engine.sync()
+
+    const phone = new Device(server, 'phone')
+    phone.api.pageLimit = 2
+    await phone.engine.sync()
+
+    // Three entries behind a page that holds two: an edit inside the first
+    // page, then a create and a delete outside it.
+    await laptop.write('early.md', 'v2\n')
+    await laptop.write('filler.md', 'x\n')
+    await laptop.write('late.md', 'only entry is past the page\n')
+    await laptop.engine.sync()
+
+    await phone.engine.sync()
+    expect(await phone.read('early.md')).toBe('v2\n')
+    expect(await phone.read('late.md')).toBe('only entry is past the page\n')
+  })
+
+  it('pulls a delete that lands past the first page', async () => {
+    const laptop = new Device(server, 'laptop')
+    await laptop.write('doomed.md', 'v1\n')
+    await laptop.engine.sync()
+
+    const phone = new Device(server, 'phone')
+    phone.api.pageLimit = 1
+    await phone.engine.sync()
+    expect(await phone.paths()).toEqual(['doomed.md'])
+
+    await laptop.write('filler.md', 'x\n')
+    await laptop.engine.sync()
+    await server.delete('doomed.md', (await laptop.store.meta('doomed.md'))!.hash)
+
+    await phone.engine.sync()
+    expect(await phone.paths()).toEqual(['filler.md'])
+  })
+
+  it('repairs a device an older client left with a journal gap', async () => {
+    const laptop = new Device(server, 'laptop')
+    await laptop.write('kept.md', 'current\n')
+    await laptop.write('stale.md', 'v1\n')
+    await laptop.write('ghost.md', 'doomed\n')
+    await laptop.engine.sync()
+
+    const phone = new Device(server, 'phone')
+    await phone.engine.sync()
+    expect(await phone.paths()).toHaveLength(3)
+
+    // The laptop edits one note, adds another, and deletes a third.
+    await laptop.write('stale.md', 'v2\n')
+    await laptop.write('fresh.md', 'new\n')
+    const doomed = (await laptop.store.meta('ghost.md'))!.hash
+    await laptop.engine.sync()
+    await server.delete('ghost.md', doomed)
+
+    // What the old cursor bug left behind: caught up by its own reckoning,
+    // with those entries never applied and no repair marker.
+    await phone.store.setCursor(server.head())
+    await phone.store.setFlag('repair', '')
+
+    const stats = await phone.engine.sync()
+    expect(await phone.read('stale.md')).toBe('v2\n')
+    expect(await phone.read('fresh.md')).toBe('new\n')
+    expect(await phone.read('kept.md')).toBe('current\n')
+    expect(await phone.paths()).not.toContain('ghost.md')
+    // Repairing is not a conflict: nothing local was at stake.
+    expect(stats.conflicts).toBe(0)
+    expect((await phone.paths()).some((p) => p.includes('conflict'))).toBe(false)
+  })
+
+  it('repairs once, not on every sync', async () => {
+    const laptop = new Device(server, 'laptop')
+    await laptop.write('a.md', 'one\n')
+    await laptop.engine.sync()
+
+    const phone = new Device(server, 'phone')
+    await phone.engine.sync()
+    const snapshots = () => phone.api.snapshots
+    const before = snapshots()
+    await phone.engine.sync()
+    await phone.engine.sync()
+    expect(snapshots()).toBe(before)
+  })
+
+  it('leaves an out-of-date file alone rather than copying it aside', async () => {
+    // The shape a rebuilt index used to hit: the phone is clean but behind, so
+    // there is nothing of its own to preserve.
+    const laptop = new Device(server, 'laptop')
+    await laptop.write('note.md', 'v1\n')
+    await laptop.engine.sync()
+
+    const phone = new Device(server, 'phone')
+    await phone.engine.sync()
+
+    await server.rebuildIndex() // index.sqlite deleted on the Pi, then a rescan
+    await server.writeExternally('note.md', 'v2\n') // Obsidian, after the rescan
+
+    const stats = await phone.engine.sync()
+    expect(await phone.read('note.md')).toBe('v2\n')
+    expect(await phone.paths()).toEqual(['note.md'])
+    expect(stats.conflicts).toBe(0)
+  })
+
+  it('keeps a pending delete across a rebuilt index', async () => {
+    const laptop = new Device(server, 'laptop')
+    await laptop.write('bye.md', 'v1\n')
+    await laptop.engine.sync()
+
+    const phone = new Device(server, 'phone')
+    await phone.engine.sync()
+    await phone.store.delete('bye.md') // deleted here, not yet pushed
+
+    await server.rebuildIndex()
+    await phone.engine.sync()
+
+    expect(await phone.paths()).toEqual([])
+    expect(server.files.has('bye.md')).toBe(false)
+  })
+
+  it('does not empty a device because the server answered with nothing', async () => {
+    // A vault whose disk failed to mount on the Pi: the directory is recreated
+    // empty, so the manifest lists nothing. Trusting that would delete a
+    // folder-backed vault off the user's own machine.
+    const laptop = new Device(server, 'laptop')
+    await laptop.write('a.md', 'one\n')
+    await laptop.write('b.md', 'two\n')
+    await laptop.engine.sync()
+
+    const phone = new Device(server, 'phone')
+    await phone.engine.sync()
+    expect(await phone.paths()).toHaveLength(2)
+
+    server.files.clear()
+    await phone.store.setFlag('repair', '') // force the repair pass
+    await phone.engine.sync()
+
+    expect(await phone.paths()).toEqual(['a.md', 'b.md'])
+  })
+
   it('syncs attachments as bytes, unchanged', async () => {
     const laptop = new Device(server, 'laptop')
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 1, 2, 3])

@@ -1,6 +1,6 @@
 import { ApiError, type Change, type VaultApi } from '../api/client'
 import { sha256Hex } from '../vault/hash'
-import type { VaultStore } from '../vault/types'
+import type { FileMeta, VaultStore } from '../vault/types'
 import { conflictPath } from './conflict'
 
 export interface SyncStats {
@@ -24,6 +24,18 @@ export interface SyncOptions {
 const emptyStats = (): SyncStats => ({ pulled: 0, pushed: 0, deleted: 0, conflicts: 0 })
 
 /**
+ * The repair marker: a device whose stored value is not this one reconciles
+ * against the manifest once, whatever its cursor claims.
+ *
+ * It exists because a client that skipped part of the journal cannot discover
+ * that from the journal — its cursor says it is caught up, so the files it
+ * missed stay missing, stale or deleted-elsewhere for good. Bumping this is
+ * how a fix reaches damage the old code already did. Only bump it for damage
+ * that needs the manifest to find; it costs every device one snapshot.
+ */
+const REPAIR = 'journal-gap-2026-09'
+
+/**
  * The client half of plan section 4.4.
  *
  * Pull applies remote changes to files that are clean and leaves local work
@@ -41,7 +53,7 @@ export class SyncEngine {
 
   async sync(): Promise<SyncStats> {
     const stats = emptyStats()
-    if (!(await this.store.flag('bootstrapped'))) {
+    if (!(await this.store.flag('bootstrapped')) || (await this.store.flag('repair')) !== REPAIR) {
       await this.reconcile(stats)
     }
     await this.pull(stats)
@@ -51,33 +63,93 @@ export class SyncEngine {
 
   /**
    * Reconcile against the full manifest instead of the journal. Used on the
-   * first sync, and again if the server's index was rebuilt and its sequence
-   * numbers restarted.
+   * first sync, if the server's index was rebuilt and its sequence numbers
+   * restarted, and by the repair pass above.
+   *
+   * Two-way on purpose: the manifest is the only thing that can tell a device
+   * what it never heard about, so this has to answer for local files it does
+   * not mention as well as for the files it does.
    */
   private async reconcile(stats: SyncStats): Promise<void> {
     const snap = await this.api.snapshot()
+    const listed = new Set<string>()
     for (const remote of snap.files) {
-      const local = await this.store.meta(remote.path)
-      if (!local || local.deleted) {
-        await this.download(remote.path)
-        stats.pulled++
-        continue
-      }
-      if (local.hash === remote.hash) {
-        await this.store.markPushed(remote.path, remote.hash)
-        continue
-      }
-      // Same path, different bytes, no shared history: keep both.
-      const data = await this.store.read(remote.path)
-      const copy = conflictPath(remote.path, this.opts.device)
-      await this.store.write(copy, data)
-      await this.download(remote.path)
-      stats.conflicts++
-      this.opts.onNotice?.({ kind: 'conflict', path: remote.path, detail: copy })
+      listed.add(remote.path)
+      await this.reconcileFile(remote, stats)
     }
+    // A manifest listing nothing is not evidence that everything was deleted.
+    // The server creates a vault's directory if it is missing, so a disk that
+    // failed to mount on the Pi produces an empty vault and an empty manifest
+    // — and acting on that would delete a folder-backed vault off the user's
+    // own disk. A real emptying still arrives as journal entries.
+    if (listed.size > 0) await this.reconcileMissing(listed, stats)
     await this.store.setCursor(snap.head)
     await this.store.setFlag('epoch', snap.epoch)
     await this.store.setFlag('bootstrapped', '1')
+    await this.store.setFlag('repair', REPAIR)
+  }
+
+  /** One file the manifest lists. */
+  private async reconcileFile(remote: FileMeta, stats: SyncStats): Promise<void> {
+    const local = await this.store.meta(remote.path)
+    if (!local) {
+      await this.download(remote.path)
+      stats.pulled++
+      return
+    }
+    if (local.deleted) {
+      // A tombstone still waiting to be pushed. Same rule as the journal
+      // path: our delete stands unless the file moved on after it.
+      if (local.baseHash === remote.hash) return
+      await this.download(remote.path)
+      stats.conflicts++
+      this.opts.onNotice?.({ kind: 'restored', path: remote.path })
+      return
+    }
+    if (local.hash === remote.hash) {
+      // Already the right bytes. Worth a write only if the base is behind,
+      // which is what keeps a repair pass over a big vault cheap.
+      if (local.baseHash !== remote.hash) await this.store.markPushed(remote.path, remote.hash)
+      return
+    }
+    if (local.baseHash !== '' && local.hash === local.baseHash) {
+      // Clean, and the server confirmed this version once: it has simply
+      // moved on since. There is no local work here to keep, so a conflict
+      // copy would be litter — this is the ordinary out-of-date file, and the
+      // case a rebuilt index used to turn into a sidecar on every device.
+      await this.download(remote.path)
+      stats.pulled++
+      return
+    }
+    // Edited here, or never pushed at all: no shared history to pick a winner
+    // from, so keep both.
+    const data = await this.store.read(remote.path)
+    const copy = conflictPath(remote.path, this.opts.device)
+    await this.store.write(copy, data)
+    await this.download(remote.path)
+    stats.conflicts++
+    this.opts.onNotice?.({ kind: 'conflict', path: remote.path, detail: copy })
+  }
+
+  /**
+   * Local files the manifest does not list.
+   *
+   * A first sync has none of these to worry about — everything local is a
+   * local creation. A repair pass does: a delete this device never saw leaves
+   * the file behind for good, because the journal entry that would have
+   * removed it is behind the cursor. Only a clean, already-pushed file is
+   * dropped; anything unsent is still ours to send.
+   */
+  private async reconcileMissing(listed: Set<string>, stats: SyncStats): Promise<void> {
+    for (const file of await this.store.list()) {
+      if (listed.has(file.path)) continue
+      const local = await this.store.meta(file.path)
+      if (!local || local.deleted) continue
+      if (local.baseHash === '') continue // never pushed: push will create it
+      if (local.hash !== local.baseHash) continue // edited here; an edit beats a delete
+      await this.store.removeRemote(file.path)
+      stats.deleted++
+    }
   }
 
   private async pull(stats: SyncStats): Promise<void> {
@@ -96,10 +168,22 @@ export class SyncEngine {
         return
       }
       if (page.epoch && !knownEpoch) await this.store.setFlag('epoch', page.epoch)
+      if (page.changes.length === 0) return // caught up
       for (const change of page.changes) {
         await this.applyChange(change, stats)
       }
-      await this.store.setCursor(page.head)
+
+      // The last entry actually applied — never the journal's head.
+      //
+      // A page that stops short of head leaves entries unread, and a cursor at
+      // head would call them consumed: every file mentioned only in the gap
+      // would stay missing, stale, or deleted-elsewhere on this device for
+      // good, with nothing left to notice it by. Reading the cursor off the
+      // page also means a server that miscounts `head` or `more` can cost a
+      // round trip but never a file.
+      const applied = page.changes[page.changes.length - 1].seq
+      if (applied <= cursor) return // no forward progress; do not spin on it
+      await this.store.setCursor(applied)
       if (!page.more) return
     }
   }

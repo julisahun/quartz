@@ -92,6 +92,14 @@ export class FakeApi implements VaultApi {
   authed = true
   /** Every path the client asked for, useful for asserting round trips. */
   reads: string[] = []
+  /** How many times the manifest was fetched: a repair pass costs one. */
+  snapshots = 0
+  /**
+   * How many journal entries one /changes call may answer with, as the real
+   * server's LIMIT does. 0 means no limit. A device more edits behind than
+   * this gets a short page and has to come back for the rest.
+   */
+  pageLimit = 0
 
   constructor(private readonly server: FakeServer) {}
 
@@ -102,6 +110,7 @@ export class FakeApi implements VaultApi {
 
   async snapshot(): Promise<Snapshot> {
     this.check()
+    this.snapshots++
     const files = [...this.server.files].map(([path, s]) => ({
       path,
       hash: s.hash,
@@ -114,8 +123,16 @@ export class FakeApi implements VaultApi {
 
   async changes(since: number): Promise<ChangePage> {
     this.check()
-    const changes = this.server.changes.filter((c) => c.seq > since)
-    return { head: this.server.head(), epoch: this.server.epoch, changes, more: false }
+    const pending = this.server.changes.filter((c) => c.seq > since)
+    const changes = this.pageLimit > 0 ? pending.slice(0, this.pageLimit) : pending
+    const head = this.server.head()
+    return {
+      head,
+      epoch: this.server.epoch,
+      changes,
+      // The server's own rule: a page that stopped short of head.
+      more: changes.length > 0 && changes[changes.length - 1].seq < head,
+    }
   }
 
   async getFile(path: string): Promise<{ data: Uint8Array; hash: string }> {
