@@ -126,12 +126,17 @@ impl VaultState {
             return Err("that folder is already a synced vault".into());
         }
 
-        let id = local_id(&path);
-        if let Some(existing) = settings.local.iter().find(|v| v.id == id) {
+        // Matched on the path, which is what a folder *is*. The derived id is
+        // only how it starts out being addressed: promoting re-keys the entry
+        // to the id the server gave it, and an entry recognised by its id
+        // alone stops being recognised at all the moment that happens —
+        // putting a second entry over a directory already open here, which is
+        // the one thing this check exists to prevent.
+        if let Some(existing) = settings.local.iter().find(|v| v.path == path) {
             return Ok(existing.clone());
         }
         let vault = LocalVault {
-            id,
+            id: local_id(&path),
             name: path
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
@@ -426,6 +431,26 @@ mod tests {
         assert_eq!(a, local_id(Path::new("/Users/juli/Documents/Obsidian")));
         assert_ne!(a, local_id(Path::new("/Users/juli/Documents/Work")));
         assert!(valid_vault_id(&a), "{a} is not usable as a vault id");
+    }
+
+    #[test]
+    fn reopening_a_promoted_folder_does_not_list_it_twice() {
+        let dirs = scratch("reopen-promoted");
+        let picked = dirs.join("talasia");
+        fs::create_dir_all(&picked).unwrap();
+        let state = state_in(&dirs);
+
+        let opened = state.add_local(&picked).unwrap();
+        state.promote_local(&opened.id, "talasia").unwrap();
+
+        // The entry no longer carries the id derived from its path, so a
+        // dedupe that asked about the id used to miss it and add a second
+        // entry over the same directory — which then could not be promoted,
+        // because the id it wanted was taken by the first.
+        let again = state.add_local(&picked).unwrap();
+        assert_eq!(again.id, "talasia");
+        assert!(again.synced, "reopening lost that it was already promoted");
+        assert_eq!(state.local_vaults().unwrap().len(), 1, "the folder was listed twice");
     }
 
     #[test]
