@@ -9,7 +9,10 @@ import {
   isFolderBacked,
   listFolders,
   pickFolder,
+  cloneToFolder,
+  keepInApp,
   promoteFolder,
+  vaultMode,
 } from '../vault/folders'
 import { isDesktop } from '../vault/tauri-bridge'
 import { decodeText, encodeText, type FileMeta, type VaultStore } from '../vault/types'
@@ -114,6 +117,12 @@ interface AppState {
    */
   changePassword(input: { current: string; next: string; signOutOthers: boolean }): Promise<void>
   selectVault(id: string): Promise<void>
+  /**
+   * Gives a vault kept in the app a folder as well. One-way, like every other
+   * path here: there is no un-cloning, because the notes would have to be
+   * deleted or left to two stores at once.
+   */
+  cloneVault(id: string): Promise<void>
   /** Picks a folder on disk and opens it as a vault of its own. */
   openFolder(): Promise<void>
   /**
@@ -139,6 +148,22 @@ interface AppState {
   /** Says something to whoever is using the app, in the same strip sync uses. */
   notify(kind: 'info' | 'error', text: string): void
   dismissNotice(id: number): void
+}
+
+/**
+ * How the app asks where a vault should live. Undefined means the question was
+ * dismissed, which leaves it unanswered.
+ *
+ * Injected rather than imported: asking is a UI concern and the store is below
+ * it — everywhere else the UI asks and the store does, but boot has to open a
+ * vault before any of that is on screen, so it hands the question back up.
+ */
+export type WhereAsker = (vaultName: string) => Promise<'folder' | 'app' | undefined>
+
+let askWhere: WhereAsker = async () => undefined
+
+export function onAskWhereVaultLives(asker: WhereAsker): void {
+  askWhere = asker
 }
 
 export const useApp = create<AppState>()((set, get) => {
@@ -189,6 +214,32 @@ export const useApp = create<AppState>()((set, get) => {
     const runtime = { store, engine, index: new VaultIndex() }
     runtimes.set(key, runtime)
     return runtime
+  }
+
+  /**
+   * Makes sure this device has decided where a synced vault's notes go, asking
+   * once if it has not.
+   *
+   * The shell can keep a vault either way and nobody but the user can say
+   * which, so it is asked rather than defaulted. Dismissing settles nothing on
+   * purpose: the vault stays unopened and the question comes back, which beats
+   * choosing on their behalf and cloning notes they never asked for.
+   */
+  const settleVaultMode = async (id: string): Promise<boolean> => {
+    if ((await vaultMode(id)) !== 'unset') return true
+    const name = get().vaults.find((v) => v.id === id)?.name ?? id
+    const answer = await askWhere(name)
+    if (!answer) return false
+    try {
+      if (answer === 'app') {
+        await keepInApp(id)
+        return true
+      }
+      return (await cloneToFolder(id)) !== undefined
+    } catch (err) {
+      notice('error', `${name} could not be set up here: ${String(err)}`)
+      return false
+    }
   }
 
   const current = (): Runtime | undefined => {
@@ -414,6 +465,10 @@ export const useApp = create<AppState>()((set, get) => {
     async selectVault(id) {
       if (get().unsaved) await get().save()
       if (get().currentVault === id) return
+      // Before the store is chosen, because the store *is* the answer: a
+      // folder-backed vault and one kept in the app are different sides of the
+      // seam, and runtimeFor has to know which before it builds anything.
+      if (!isLocalVault(id) && !(await settleVaultMode(id))) return
       // A folder opened in a browser holds its permission only as long as the
       // tab, so re-granting it is the normal path on a cold start. The browser
       // will ask only while the click that got here is still fresh, which is
@@ -452,6 +507,27 @@ export const useApp = create<AppState>()((set, get) => {
       }
       await openFirstNote()
       scheduleSync(0)
+    },
+
+    async cloneVault(id) {
+      let cloned
+      try {
+        cloned = await cloneToFolder(id)
+      } catch (err) {
+        notice('error', `Could not keep it as files: ${String(err)}`)
+        return
+      }
+      if (!cloned) return
+      // Its bytes live in a folder from here on, so the runtime built over the
+      // app's own storage is dropped and rebuilt over the new one. The folder
+      // starts empty and the first sync fills it — adopting whatever already
+      // matched, if it was pointed at a copy of the notes.
+      runtimes.delete(`${get().user}/${id}`)
+      notice('info', `${cloned.name} is a folder on this machine now.`)
+      if (get().currentVault === id) {
+        set({ currentVault: undefined })
+        await get().selectVault(id)
+      }
     },
 
     async openFolder() {

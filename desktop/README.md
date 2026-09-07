@@ -19,13 +19,34 @@ atomic writes, sha256 — so a file means the same thing in all three places.
 
 | | |
 |---|---|
-| Synced vaults | `~/Documents/quartz/<vault id>` by default; change `vaults` in `settings.json` |
-| Opened folders | wherever you picked them; recorded in `local` in `settings.json` |
+| Vaults kept as files | wherever you cloned them; `~/Documents/quartz/<vault id>` if you did not choose. Recorded in `local` in `settings.json` |
+| Vaults kept in the app | nowhere in the filesystem — IndexedDB in the webview's own store. Listed in `app_only` in `settings.json` |
+| Opened folders | wherever you picked them; also `local` in `settings.json` |
 | Settings | the app config directory (`~/Library/Application Support/uk.sigint-pm.quartz` on macOS) |
 | Sync state | `sync-state-<vault>.json` beside the settings — **never inside a vault** |
 
-Each vault the account can open becomes a folder of its own, named after the
-vault id the server uses, so a shared vault and a private one never mix.
+## Files, or not
+
+Opening a synced vault for the first time asks where it should live on this
+machine, and remembers the answer per vault:
+
+- **Keep it in the app** — nothing lands in your filesystem. The notes go to
+  IndexedDB in the webview's store, exactly as they do in a browser tab, so
+  they sync and work offline but no folder exists to open in Obsidian.
+- **Keep it as files…** — a folder, which you pick. It may already hold a copy
+  of the notes: that is the same-Obsidian-vault-on-a-second-machine case, and
+  reconcile adopts what matches and conflicts only what differs.
+
+Dismissing the question settles nothing: the vault stays closed and you are
+asked again, rather than having a clone chosen for you. A vault kept in the app
+can be given a folder later with **keep as files…** in the `⋯` menu.
+
+There is no way back. Once the notes are files, un-cloning would mean deleting
+them or leaving two stores over one folder, so the shell refuses.
+
+This is why `root()` errors for a vault it has no folder for, rather than
+creating one under the base: that fallback is what used to clone every synced
+vault the instant it was opened.
 
 ## Opening a folder from disk
 

@@ -39,6 +39,29 @@ export async function pickLocalVault(): Promise<LocalVaultEntry | undefined> {
   return (await tauri().invoke<LocalVaultEntry | null>('pick_local_vault')) ?? undefined
 }
 
+/** How this machine keeps a vault, and whether it has been asked yet. */
+export type LocalVaultMode = 'folder' | 'app' | 'unset'
+
+export async function localVaultMode(vault: string): Promise<LocalVaultMode> {
+  return tauri().invoke<LocalVaultMode>('vault_mode', { vault })
+}
+
+/** Records that a vault stays in the app's own storage on this machine. */
+export async function keepVaultInApp(vault: string): Promise<void> {
+  await tauri().invoke('keep_vault_in_app', { vault })
+}
+
+/**
+ * Clones a synced vault into a folder. With `pick` the user chooses where.
+ * Undefined means the picker was dismissed and nothing changed.
+ */
+export async function cloneLocalVault(
+  vault: string,
+  pick: boolean,
+): Promise<LocalVaultEntry | undefined> {
+  return (await tauri().invoke<LocalVaultEntry | null>('clone_vault', { vault, pick })) ?? undefined
+}
+
 /** Re-keys a promoted folder to the id its vault was given on the server. */
 export async function promoteLocalVault(id: string, newId: string): Promise<LocalVaultEntry> {
   return tauri().invoke<LocalVaultEntry>('promote_local_vault', { id, newId })

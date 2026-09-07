@@ -9,13 +9,12 @@ import type { VaultStore } from './types'
  * running, and gives each (account, vault) pair a store of its own — two
  * accounts on one browser must never share a local vault.
  *
- * A vault opened from disk is a real folder whichever side of the seam it is
- * reached from, so it gets the same store either way; only the bridge under it
- * differs. Everything synced is IndexedDB in a browser, since the server's
- * copy is the one that matters and a tab has nowhere else to put it.
+ * Whether a vault's bytes live in a folder is a fact about the vault on this
+ * device, not about the platform: the shell can hold some vaults as folders
+ * and keep others in its own storage, exactly as a browser does. Only the
+ * bridge under a folder differs between the two.
  */
-export function createVaultStore(user: string, vaultId: string, local = false): VaultStore {
-  if (isDesktop()) return new FolderVaultStore(tauriBridge(vaultId))
-  if (local) return new FolderVaultStore(fsaBridge(vaultId))
+export function createVaultStore(user: string, vaultId: string, folder = false): VaultStore {
+  if (folder) return new FolderVaultStore(isDesktop() ? tauriBridge(vaultId) : fsaBridge(vaultId))
   return new IdbVaultStore(`quartz-${user}-${vaultId}`)
 }

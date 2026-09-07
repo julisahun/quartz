@@ -6,7 +6,7 @@ import { useApp } from '../state/store'
 import { tagMatches } from '../state/tags'
 import { buildTree, foldersTo } from '../state/tree'
 import { isLocal, vaultHint } from '../state/vaults'
-import { foldersSupported } from '../vault/folders'
+import { foldersSupported, isFolderBacked } from '../vault/folders'
 import {
   promptForgetFolder,
   promptNewNote,
@@ -42,6 +42,7 @@ export function Sidebar({ onNavigate, inert }: Props) {
   const syncNow = useApp((s) => s.syncNow)
   const selectVault = useApp((s) => s.selectVault)
   const openFolder = useApp((s) => s.openFolder)
+  const cloneVault = useApp((s) => s.cloneVault)
   const signedIn = useApp((s) => s.signedIn)
   const showLogin = useApp((s) => s.showLogin)
   const user = useApp((s) => s.user)
@@ -124,7 +125,20 @@ export function Sidebar({ onNavigate, inert }: Props) {
               : []),
             { label: 'Forget this folder', hint: 'Leaves the notes on disk', run: () => void promptForgetFolder(open.id) },
           ]
-        : [{ label: 'Sync now', run: () => void syncNow() }]),
+        : [
+            { label: 'Sync now', run: () => void syncNow() },
+            // One-way, and only where a folder is possible at all. A vault
+            // already kept as files has nothing to offer here.
+            ...(open && foldersSupported() && !isFolderBacked(open.id)
+              ? [
+                  {
+                    label: 'Keep as files…',
+                    hint: 'A folder Obsidian can open too',
+                    run: () => void cloneVault(open.id),
+                  },
+                ]
+              : []),
+          ]),
       // An account is what a password belongs to; a folder on disk has none.
       ...(signedIn
         ? [

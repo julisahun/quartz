@@ -9,6 +9,38 @@ import { askConfirm, askPassword, openMenu, askText } from './dialogs'
  * overflow menu, the desktop status bar and a swiped row all behave alike.
  */
 
+/**
+ * Where a vault's notes should live on this machine, asked once per vault.
+ *
+ * "In the app" is offered first and reads as the lighter choice, because it is
+ * the one that leaves nothing behind on a machine that is not yours. Keeping
+ * it as files opens a picker, so it can be pointed at a copy of the notes that
+ * is already there.
+ */
+export async function askWhereVaultLives(
+  vaultName: string,
+): Promise<'folder' | 'app' | undefined> {
+  let answer: 'folder' | 'app' | undefined
+  const chosen = await openMenu(`Where should ${vaultName} live on this machine?`, [
+    {
+      label: 'Keep it in the app',
+      hint: 'Nothing lands in your filesystem',
+      run: () => {
+        answer = 'app'
+      },
+    },
+    {
+      label: 'Keep it as files…',
+      hint: 'A folder Obsidian can open too',
+      run: () => {
+        answer = 'folder'
+      },
+    },
+  ])
+  chosen?.run()
+  return answer
+}
+
 export async function promptNewNote(): Promise<string | undefined> {
   const title = await askText({ title: 'New note', label: 'Title', confirmLabel: 'Create' })
   if (title === null) return undefined

@@ -8,8 +8,11 @@ import {
   promoteFsaFolder,
 } from './fsa-bridge'
 import {
+  cloneLocalVault,
   forgetLocalVault,
   isDesktop,
+  keepVaultInApp,
+  localVaultMode,
   localVaults,
   pickLocalVault,
   promoteLocalVault,
@@ -52,9 +55,45 @@ function remember(folders: Folder[]): Folder[] {
   return folders
 }
 
-/** Whether this vault's notes live in a folder rather than in browser storage. */
+/**
+ * Whether this vault's notes live in a folder rather than in the app's own
+ * storage.
+ *
+ * Not a property of the platform. The shell used to answer yes to everything,
+ * which is why opening a synced vault there cloned it whether or not anybody
+ * wanted files; now it answers for the vault, from what the shell recorded.
+ */
 export function isFolderBacked(id: string): boolean {
-  return isDesktop() || backed.has(id)
+  return backed.has(id)
+}
+
+/** How this device keeps a vault's notes. */
+export type VaultMode = 'folder' | 'app' | 'unset'
+
+/**
+ * Only the shell can be undecided. A browser tab has nowhere to put a folder
+ * unless one came from the picker, so everything else there is already
+ * answered and there is nothing to ask.
+ */
+export async function vaultMode(id: string): Promise<VaultMode> {
+  if (!isDesktop()) return backed.has(id) ? 'folder' : 'app'
+  return localVaultMode(id)
+}
+
+/** Records that a vault stays in the app's own storage on this device. */
+export async function keepInApp(id: string): Promise<void> {
+  if (isDesktop()) await keepVaultInApp(id)
+}
+
+/**
+ * Clones a synced vault into a folder on this device. Undefined means the
+ * picker was dismissed, which changes nothing and leaves the question open.
+ */
+export async function cloneToFolder(id: string, pick = true): Promise<Folder | undefined> {
+  if (!isDesktop()) throw new Error('this build cannot keep a vault as a folder')
+  const cloned = await cloneLocalVault(id, pick)
+  if (cloned) remember([cloned])
+  return cloned
 }
 
 /** Whether this build can open a folder from disk at all. */

@@ -282,6 +282,39 @@ What fell out of it:
   and to sign out, because an account that owns nothing would otherwise be
   signed in to a blank window with no way forward and no way back.
 
+## Files, or not (2026-09-07)
+
+The shell cloned every synced vault the moment it was opened. Not by decision:
+`root()` resolved an id it did not recognise to a directory under the vaults
+base and created it, so selecting a vault made a folder appear whether or not
+anybody wanted notes on that machine. A vault nobody ever used still got a
+directory, and a stray note in it.
+
+| Question | Decision | Notes |
+|---|---|---|
+| Who decides? | **The user, once per vault** | Asked when a synced vault is first opened. The shell can hold a vault either way and only its owner knows which; a default would be a guess with somebody's disk space. |
+| What are the answers? | **In the app, or as files** | "In the app" is IndexedDB in the webview, exactly what a browser tab does — it syncs and works offline, but no folder exists. "As files" is a folder you pick. |
+| Is being unasked a state? | **Yes** | `folder` / `app` / `unset`. Dismissing the question settles nothing and it comes back, which beats cloning notes on a shrug. |
+| Un-clone? | **No** | Once the notes are files, going back means deleting them or leaving two stores over one folder. Cloning later is offered; the reverse is refused. |
+| Where does the answer live? | **`settings.json`** | A vault kept in the app has no folder, so its answer cannot live in one. This is also why the choice survives moving vault identity into `.quartz/`. |
+
+What fell out of it:
+
+- **"Folder-backed" stopped being a property of the platform.** `isFolderBacked`
+  answered `isDesktop() || …`, and `createVaultStore` short-circuited on the
+  same thing, so the shell could not have held a vault any other way. Both now
+  answer for the vault.
+- **Cloning takes a path.** Pointing it at a folder that already holds the
+  notes is the second-machine case, and reconcile already adopted what matched
+  and conflicted only what differed — so this needed no sync work at all.
+- **Eviction detection started mattering on the desktop.** It was a browser
+  problem while every desktop vault was a folder; a vault kept in the app is
+  in the webview's store, which can be cleared like any other.
+- **The question is asked by the UI and answered into the store**, through an
+  injected asker rather than an import. Everywhere else the UI asks and the
+  store does — but boot opens a vault before anything is on screen, so the
+  store hands the question back up rather than reaching down into the dialogs.
+
 ## Decisions taken while building
 
 - **Pure-Go SQLite** (`modernc.org/sqlite`) rather than `mattn/go-sqlite3`, so

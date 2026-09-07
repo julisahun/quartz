@@ -10,8 +10,9 @@ import { StatusBar } from './ui/StatusBar'
 import { LoginScreen } from './ui/LoginScreen'
 import { foldersSupported } from './vault/folders'
 import { trackViewport } from './editor/mobile'
-import { startBackgroundSync, useApp } from './state/store'
+import { onAskWhereVaultLives, startBackgroundSync, useApp } from './state/store'
 import { noteTitle } from './state/notes'
+import { askWhereVaultLives } from './ui/actions'
 
 export function App() {
   const phase = useApp((s) => s.phase)
@@ -39,6 +40,8 @@ export function App() {
   useSwipeBack(pane, { enabled: isPhone && screen === 'note', onBack: back })
 
   useEffect(() => {
+    // Registered before boot, which opens a vault and may have to ask.
+    onAskWhereVaultLives(askWhereVaultLives)
     void boot()
     const stopSync = startBackgroundSync()
     const stopViewport = trackViewport()
