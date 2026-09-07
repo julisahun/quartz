@@ -287,7 +287,11 @@ describe('sync engine', () => {
     expect(await phone.read('stale.md')).toBe('v2\n')
     expect(await phone.read('fresh.md')).toBe('new\n')
     expect(await phone.read('kept.md')).toBe('current\n')
-    expect(await phone.paths()).not.toContain('ghost.md')
+    // ghost.md was deleted on the server while this device was not listening.
+    // The manifest cannot say whether it was deleted or lost, so the note is
+    // kept and offered back rather than destroyed.
+    expect(await phone.read('ghost.md')).toBe('doomed\n')
+    expect(server.files.has('ghost.md')).toBe(true)
     // Repairing is not a conflict: nothing local was at stake.
     expect(stats.conflicts).toBe(0)
     expect((await phone.paths()).some((p) => p.includes('conflict'))).toBe(false)
@@ -342,10 +346,11 @@ describe('sync engine', () => {
     expect(server.files.has('bye.md')).toBe(false)
   })
 
-  it('does not empty a device because the server answered with nothing', async () => {
-    // A vault whose disk failed to mount on the Pi: the directory is recreated
-    // empty, so the manifest lists nothing. Trusting that would delete a
-    // folder-backed vault off the user's own machine.
+  it('refills a vault the server lost instead of emptying the device', async () => {
+    // The shape that actually bit: a server-side vault recreated empty, while
+    // a device still holds every file and believes all of them confirmed.
+    // Trusting the manifest would delete a folder-backed vault off the user's
+    // own machine; the files are offered back instead.
     const laptop = new Device(server, 'laptop')
     await laptop.write('a.md', 'one\n')
     await laptop.write('b.md', 'two\n')
@@ -357,9 +362,35 @@ describe('sync engine', () => {
 
     server.files.clear()
     await phone.store.setFlag('repair', '') // force the repair pass
-    await phone.engine.sync()
+    const stats = await phone.engine.sync()
 
     expect(await phone.paths()).toEqual(['a.md', 'b.md'])
+    expect(await phone.read('a.md')).toBe('one\n')
+    expect(stats.pushed).toBe(2)
+    expect([...server.files.keys()].sort()).toEqual(['a.md', 'b.md'])
+  })
+
+  it('re-offers a file it thinks is confirmed that the server has never had', async () => {
+    // talasia: base said 147 files were confirmed, the server held 11, and
+    // pending() offered nothing because every base hash matched. The files
+    // were stuck on one device looking perfectly synced.
+    const laptop = new Device(server, 'laptop')
+    await laptop.write('kept.md', 'shared\n')
+    await laptop.write('stranded.md', 'only here\n')
+    await laptop.engine.sync()
+    expect(server.files.has('stranded.md')).toBe(true)
+
+    // The server's copy goes away without a journal entry to say so, which is
+    // what a vault recreated under a new root looks like from here.
+    server.files.delete('stranded.md')
+
+    await laptop.store.setFlag('repair', '')
+    const stats = await laptop.engine.sync()
+
+    expect(await laptop.read('stranded.md')).toBe('only here\n')
+    expect(server.files.has('stranded.md')).toBe(true)
+    expect(stats.pushed).toBe(1)
+    expect(await laptop.store.pending()).toHaveLength(0)
   })
 
   it('syncs attachments as bytes, unchanged', async () => {

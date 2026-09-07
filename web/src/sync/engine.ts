@@ -77,12 +77,7 @@ export class SyncEngine {
       listed.add(remote.path)
       await this.reconcileFile(remote, stats)
     }
-    // A manifest listing nothing is not evidence that everything was deleted.
-    // The server creates a vault's directory if it is missing, so a disk that
-    // failed to mount on the Pi produces an empty vault and an empty manifest
-    // — and acting on that would delete a folder-backed vault off the user's
-    // own disk. A real emptying still arrives as journal entries.
-    if (listed.size > 0) await this.reconcileMissing(listed, stats)
+    await this.reconcileMissing(listed)
     await this.store.setCursor(snap.head)
     await this.store.setFlag('epoch', snap.epoch)
     await this.store.setFlag('bootstrapped', '1')
@@ -132,23 +127,36 @@ export class SyncEngine {
   }
 
   /**
-   * Local files the manifest does not list.
+   * Local files the manifest does not list — offered to the server again,
+   * never deleted.
    *
-   * A first sync has none of these to worry about — everything local is a
-   * local creation. A repair pass does: a delete this device never saw leaves
-   * the file behind for good, because the journal entry that would have
-   * removed it is behind the cursor. Only a clean, already-pushed file is
-   * dropped; anything unsent is still ours to send.
+   * The manifest says what the server *has*. It is not evidence that anything
+   * was deleted: a vault recreated under a new root, an index rebuilt over an
+   * empty directory, a restore from an older backup all produce a manifest
+   * that is simply missing files this device is holding. Deletion is stated
+   * explicitly by a journal entry, and comes from nowhere else.
+   *
+   * That is what went wrong here. A device can hold a file it believes the
+   * server confirmed while the server has no idea about it — and then
+   * `pending()` sees a base hash that matches and offers nothing, so the file
+   * is stuck on that one device for good, looking perfectly synced. Clearing
+   * the base hash is the repair: the file stops claiming to be confirmed, and
+   * the push step creates it.
+   *
+   * Being wrong this way costs a deleted note coming back, which is visible
+   * and reversible. Being wrong the other way deletes somebody's notes off
+   * their own disk, which is neither. Nothing is counted here: whatever this
+   * re-offers is counted by the push step that sends it.
    */
-  private async reconcileMissing(listed: Set<string>, stats: SyncStats): Promise<void> {
+  private async reconcileMissing(listed: Set<string>): Promise<void> {
     for (const file of await this.store.list()) {
       if (listed.has(file.path)) continue
       const local = await this.store.meta(file.path)
       if (!local || local.deleted) continue
-      if (local.baseHash === '') continue // never pushed: push will create it
-      if (local.hash !== local.baseHash) continue // edited here; an edit beats a delete
-      await this.store.removeRemote(file.path)
-      stats.deleted++
+      if (local.baseHash === '') continue // already looks like a local creation
+      // Keeps the bytes; drops only the claim that the server has them. The
+      // push step counts it, so there is no stat to add here.
+      await this.store.markPushed(file.path, '')
     }
   }
 

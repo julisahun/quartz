@@ -336,16 +336,17 @@ beats a delete", and a note deleted on the laptop came back for everybody.
 | Where does the cursor come from? | **The last entry applied** | Read off the page, never from `head`. A server that miscounts `head` or `more` now costs a round trip rather than a file. |
 | How does a fix reach damage already done? | **A repair marker** | A store flag; a device whose value is stale reconciles against the manifest once. The journal cannot describe its own gaps, so nothing else could have found them. |
 | Is `reconcile` a repair tool? | **It is now** | It answered only for the files the manifest listed, and read any local difference as a two-writer conflict. Neither holds for a device that is merely behind. |
-| Can an empty manifest empty a device? | **No** | The server creates a vault's directory if it is missing, so a disk that failed to mount on the Pi serves an empty manifest. Deletions are ignored unless the manifest lists something. |
+| Can the manifest delete anything? | **No** | It says what the server has, never what was deleted. A vault recreated under a new root, an index rebuilt over an empty directory and a restore from an older backup all look identical to a mass deletion. Only a journal entry deletes. |
 | Rebuild `index.sqlite` to heal instead? | **No** | It does force every device to reconcile, but until this change reconcile turned every out-of-date file into a conflict copy and pushed it — the workaround littered the vault it was meant to repair. |
 
 What fell out of it:
 
 - **Reconcile is two-way.** It has to answer for local files the manifest does
-  not list, or it cannot repair anything. A clean, already-pushed file the
-  server no longer has is a delete this device slept through; an unpushed one
-  is still ours to send, and a locally edited one keeps the existing rule that
-  an edit beats a delete.
+  not list, or it cannot repair anything — and the answer is to offer them back
+  rather than to drop them. Clearing the base hash is what does it: the file
+  stops claiming to be confirmed and the push step creates it. The first
+  version of this deleted them instead, which would have taken 135 files off
+  a real disk; see the correction below.
 - **An out-of-date file is not a conflict.** `local.hash === local.baseHash`
   over a non-empty base means the server confirmed those bytes once and has
   moved on since; there is nothing local at stake. Only an unpushed or locally
@@ -360,6 +361,44 @@ What fell out of it:
 - **The slowness is untouched.** Files are still fetched one request per
   journal entry, awaited one at a time — which is what let a device fall
   thousands of entries behind to begin with, but is a separate change.
+
+## Its own first fix was the worse bug (2026-09-07)
+
+The change above shipped with `reconcileMissing` deleting local files the
+manifest did not list. Deployed against the real thing it would have deleted
+135 of talasia's 143 files out of `~/Documents/quartz/talasia`, because the
+premise was wrong: a manifest is evidence of what the server holds and never
+evidence that anything was deleted.
+
+Which is what had gone wrong in the first place, and it was not the cursor.
+talasia's server-side vault had been recreated empty, so the manifest listed
+11 files while the desktop's `base` map claimed 147 were confirmed — 135 of
+those hashes matching the local bytes exactly. `pending()` compares
+`base !== hash`, found a match, and offered nothing. The notes sat on one
+machine looking perfectly synced, and every other device faithfully showed the
+11 the server really had.
+
+| Question | Decision | Notes |
+|---|---|---|
+| A file the manifest omits | **Offer it back** | `markPushed(path, '')` keeps the bytes and drops only the claim that the server has them, so the push step creates it. |
+| Guard the empty-manifest case? | **No longer needed** | It existed only to stop deletion. Nothing deletes on manifest evidence now, and an empty manifest is exactly when refilling matters most. |
+| Ghosts, then? | **They come back** | A file deleted on the server that a device never heard about is now re-uploaded rather than dropped. Repairing that is what the journal is for; the manifest cannot tell "deleted" from "lost". |
+| Which way to be wrong? | **Toward keeping the note** | Being wrong this way resurrects a deleted note: visible, reversible, and already the house rule for an edit against a delete. The other way deletes somebody's notes off their own disk. |
+
+What fell out of it:
+
+- **The store of record cuts both ways.** The vault is authoritative, so a
+  device holding notes the server has never seen is the device that is right.
+  Sync had no path for that: `base` could claim a file was confirmed with
+  nothing on the server to back it, and no amount of syncing questioned it.
+- **The desktop shell bundles `web/dist` at build time**, so it was still
+  running the old engine while the PWA had the new one. That is the only
+  reason the deleting version never touched the disk — luck, not design.
+- **A folder that has lost a file pushes a delete for it.** Two of croma's
+  files were on the server and in the Obsidian original but missing from the
+  synced folder, so the repair pass would have deleted them upstream. Working
+  as designed — a file gone from the folder *is* a delete — but worth knowing
+  before a repair pass runs over a folder that was copied incompletely.
 
 ## Decisions taken while building
 
