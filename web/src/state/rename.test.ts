@@ -18,7 +18,7 @@ function freshVault(): void {
     phase: 'ready',
     user: 'tester',
     device: 'test-device',
-    vaults: [{ id: `v${vaultId}`, name: 'Test', kind: 'private', owner: 'tester', role: 'owner' }],
+    vaults: [{ id: `v${vaultId}`, name: 'Test', owner: 'tester', role: 'owner' }],
     currentVault: `v${vaultId}`,
     files: [],
     currentPath: undefined,

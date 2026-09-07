@@ -28,13 +28,6 @@ var (
 	ErrLastOwner   = errors.New("a vault must keep an owner")
 )
 
-type Kind string
-
-const (
-	Private Kind = "private"
-	Shared  Kind = "shared"
-)
-
 type Role string
 
 const (
@@ -50,7 +43,6 @@ type User struct {
 type Vault struct {
 	ID      string    `json:"id"`
 	Name    string    `json:"name"`
-	Kind    Kind      `json:"kind"`
 	Root    string    `json:"-"` // a filesystem path never leaves the server
 	Owner   string    `json:"owner"`
 	Created time.Time `json:"created"`
@@ -208,58 +200,83 @@ func (s *Store) ListUsers() ([]User, error) {
 	return out, rows.Err()
 }
 
-// DeleteUser removes an account, its memberships, its sessions and its private
-// vault's registration. Vault directories are left on disk: deleting someone's
-// notes is a separate, deliberate act.
+// DeleteUser removes an account, its memberships, its sessions, and the
+// registration of every vault it owned that nobody else could open. Vault
+// directories are left on disk — deleting someone's notes is a separate,
+// deliberate act — so the vaults it did unregister are returned, for a caller
+// that means to delete their data too.
 //
-// Shared vaults the account owned are kept and returned, because other people
-// may be using them — they need a new owner, not a silent deletion.
-func (s *Store) DeleteUser(name string) (orphanedShared []string, err error) {
+// A vault somebody else is a member of is kept and reported instead: it needs a
+// new owner, not a silent deletion. This used to be asked as "is it private?",
+// which got a vault its owner had never shared with anyone wrong — that one was
+// kept and reported as needing a new owner when there was nobody to give it to.
+func (s *Store) DeleteUser(name string) (removed []Vault, orphaned []string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tx, err := s.db.Begin()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer tx.Rollback()
 
 	res, err := tx.Exec(`DELETE FROM users WHERE name = ?`, name)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return nil, ErrNoSuchUser
-	}
-	if _, err := tx.Exec(`DELETE FROM memberships WHERE user = ?`, name); err != nil {
-		return nil, err
-	}
-	if _, err := tx.Exec(`DELETE FROM sessions WHERE user = ?`, name); err != nil {
-		return nil, err
+		return nil, nil, ErrNoSuchUser
 	}
 
-	// The private vault goes with the account; nobody else could open it.
-	if _, err := tx.Exec(
-		`DELETE FROM vaults WHERE owner = ? AND kind = ?`, name, string(Private)); err != nil {
-		return nil, err
-	}
-
-	rows, err := tx.Query(`SELECT id FROM vaults WHERE owner = ?`, name)
+	// Classified before any membership is dropped, so "somebody else is in it"
+	// is read from the table as it stood.
+	rows, err := tx.Query(`
+		SELECT v.id, v.name, v.root, v.owner, v.created,
+		       EXISTS (SELECT 1 FROM memberships m
+		               WHERE m.vault_id = v.id AND m.user <> v.owner)
+		FROM vaults v
+		WHERE v.owner = ?
+		ORDER BY v.id`, name)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var v Vault
+		var created int64
+		var others int
+		if err := rows.Scan(&v.ID, &v.Name, &v.Root, &v.Owner, &created, &others); err != nil {
 			rows.Close()
-			return nil, err
+			return nil, nil, err
 		}
-		orphanedShared = append(orphanedShared, id)
+		v.Created = time.UnixMilli(created)
+		if others > 0 {
+			orphaned = append(orphaned, v.ID)
+		} else {
+			removed = append(removed, v)
+		}
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return orphanedShared, tx.Commit()
+
+	if _, err := tx.Exec(`DELETE FROM memberships WHERE user = ?`, name); err != nil {
+		return nil, nil, err
+	}
+	if _, err := tx.Exec(`DELETE FROM sessions WHERE user = ?`, name); err != nil {
+		return nil, nil, err
+	}
+	for _, v := range removed {
+		if _, err := tx.Exec(`DELETE FROM memberships WHERE vault_id = ?`, v.ID); err != nil {
+			return nil, nil, err
+		}
+		if _, err := tx.Exec(`DELETE FROM vaults WHERE id = ?`, v.ID); err != nil {
+			return nil, nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, nil, err
+	}
+	return removed, orphaned, nil
 }
 
 // --- vaults ---------------------------------------------------------------
@@ -276,9 +293,14 @@ func (s *Store) CreateVault(v Vault) error {
 	}
 	defer tx.Rollback()
 
+	// `kind` is vestigial. It told a private vault — the one every account
+	// used to get automatically — from a shared one; now every vault is a
+	// vault with a membership list, and nothing reads the column back. It is
+	// still written, and still NOT NULL, so a database created before this
+	// change opens unchanged and an older binary could still read it.
 	_, err = tx.Exec(
-		`INSERT INTO vaults (id, name, kind, root, owner, created) VALUES (?, ?, ?, ?, ?, ?)`,
-		v.ID, v.Name, string(v.Kind), v.Root, v.Owner, time.Now().UnixMilli())
+		`INSERT INTO vaults (id, name, kind, root, owner, created) VALUES (?, ?, 'shared', ?, ?, ?)`,
+		v.ID, v.Name, v.Root, v.Owner, time.Now().UnixMilli())
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return ErrVaultExists
@@ -296,23 +318,21 @@ func (s *Store) CreateVault(v Vault) error {
 func (s *Store) Vault(id string) (Vault, error) {
 	var v Vault
 	var created int64
-	var kind string
 	err := s.db.QueryRow(
-		`SELECT id, name, kind, root, owner, created FROM vaults WHERE id = ?`, id).
-		Scan(&v.ID, &v.Name, &kind, &v.Root, &v.Owner, &created)
+		`SELECT id, name, root, owner, created FROM vaults WHERE id = ?`, id).
+		Scan(&v.ID, &v.Name, &v.Root, &v.Owner, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Vault{}, ErrNoSuchVault
 	}
 	if err != nil {
 		return Vault{}, err
 	}
-	v.Kind = Kind(kind)
 	v.Created = time.UnixMilli(created)
 	return v, nil
 }
 
 func (s *Store) AllVaults() ([]Vault, error) {
-	rows, err := s.db.Query(`SELECT id, name, kind, root, owner, created FROM vaults ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id, name, root, owner, created FROM vaults ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -323,11 +343,11 @@ func (s *Store) AllVaults() ([]Vault, error) {
 // VaultsFor lists what a user may open, with the role they hold.
 func (s *Store) VaultsFor(user string) ([]Vault, error) {
 	rows, err := s.db.Query(`
-		SELECT v.id, v.name, v.kind, v.root, v.owner, v.created, m.role
+		SELECT v.id, v.name, v.root, v.owner, v.created, m.role
 		FROM vaults v
 		JOIN memberships m ON m.vault_id = v.id
 		WHERE m.user = ?
-		ORDER BY v.kind DESC, v.name`, user)
+		ORDER BY v.name`, user)
 	if err != nil {
 		return nil, err
 	}
@@ -337,11 +357,10 @@ func (s *Store) VaultsFor(user string) ([]Vault, error) {
 	for rows.Next() {
 		var v Vault
 		var created int64
-		var kind, role string
-		if err := rows.Scan(&v.ID, &v.Name, &kind, &v.Root, &v.Owner, &created, &role); err != nil {
+		var role string
+		if err := rows.Scan(&v.ID, &v.Name, &v.Root, &v.Owner, &created, &role); err != nil {
 			return nil, err
 		}
-		v.Kind = Kind(kind)
 		v.Role = Role(role)
 		v.Created = time.UnixMilli(created)
 		out = append(out, v)
@@ -467,11 +486,9 @@ func scanVaults(rows *sql.Rows) ([]Vault, error) {
 	for rows.Next() {
 		var v Vault
 		var created int64
-		var kind string
-		if err := rows.Scan(&v.ID, &v.Name, &kind, &v.Root, &v.Owner, &created); err != nil {
+		if err := rows.Scan(&v.ID, &v.Name, &v.Root, &v.Owner, &created); err != nil {
 			return nil, err
 		}
-		v.Kind = Kind(kind)
 		v.Created = time.UnixMilli(created)
 		out = append(out, v)
 	}

@@ -4,8 +4,9 @@ A self-hosted notes app over plain folders of markdown files. Obsidian keeps
 working on the same folders, which is the point: it is the fallback while the
 editor is still being built.
 
-Three musts: markdown editing, offline editing, sync across devices. Each
-account gets a private vault, and vaults can be shared with other accounts.
+Three musts: markdown editing, offline editing, sync across devices. A vault is
+a folder of markdown files with a membership list; an account makes one by
+publishing a folder, and can share it with other accounts.
 Non-goals: graph view, plugins, canvas, publishing, real-time collaboration,
 CRDT merge, Dataview queries, themes, a native mobile app.
 
@@ -115,16 +116,18 @@ There is no signup endpoint: accounts exist because someone with shell access
 created them.
 
 ```bash
-quartz-admin user add maria                        # creates maria + her private vault
+quartz-admin user add maria                        # the account only; it owns nothing yet
 quartz-admin vault create casa -owner juli -name "Casa"
 quartz-admin vault share casa maria                # maria can now open it
 quartz-admin vault list
 quartz-admin user remove maria                     # keeps her notes; -purge deletes them
 ```
 
-A private vault is addressed by its owner's name; shared vaults take the id you
-give them, from the same namespace. Run the CLI as the user the service runs as,
-so the directories it creates are owned correctly.
+A vault takes the id you give it, and all of them share one namespace — the
+same one the API uses as a path segment. An account starts out owning nothing:
+publishing a folder from the app is what creates a vault, so a new account's
+first screen is an empty one offering to open a folder. Run the CLI as the user
+the service runs as, so the directories it creates are owned correctly.
 
 A signed-in account can change **its own** password in the app — `password…` in
 the status bar, or the phone's `⋯` menu — which asks for the current one and
@@ -274,7 +277,7 @@ forgotten from the list, since that would leave the vault with nowhere to live.
 | M4 | Live preview | done for the construct list above |
 | M5 | Tauri desktop | shell builds, the seam is swapped, folders open from disk; signing and updates are not set up |
 | M6 | iOS hardening | persistent storage, eviction recovery, keyboard-aware scrolling; the escape hatch has not been needed |
-| M7 | Multiple people | private vault per account, shared vaults, admin CLI; membership changes are CLI-only for now |
+| M7 | Multiple people | vaults with membership lists, admin CLI; membership changes are CLI-only for now |
 
 Deployment lives in [`deploy/README.md`](deploy/README.md).
 Open questions and their answers are in [`DECISIONS.md`](DECISIONS.md).

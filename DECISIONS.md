@@ -9,7 +9,7 @@ re-opened later.
 | 1 | Search in scope? | **Yes**, FTS5 from the start | The SQLite index is there anyway, so it costs one virtual table. Server-side from M1; the UI lands in M2. |
 | 2 | Attachments and pasted images? | **Yes, v1** | Binary files ride the same `/api/file` endpoints. Paste handling in the editor is the real work, not the server. |
 | 3 | Encryption at rest? | **No** | Plaintext `.md` on the Pi's SD card is what lets Obsidian keep working on the same vault — the plan's whole safety net. Protection is the Cloudflare tunnel, the home LAN, and a single account. Revisit if the vault ever leaves the house. |
-| 4 | Single user forever? | **No — reversed 2026-09-06** | See below. The original plan assumed one user; it is now several people, each with a private vault, plus shared vaults. |
+| 4 | Single user forever? | **No — reversed 2026-09-06** | See below. The original plan assumed one user; it is now several people sharing vaults with each other. |
 | 5 | Name and repo | **`quartz`** | `julisahun/quartz`, following `aegis` / `pirdle` / `pergamino`. |
 | 6 | Vault on `home-lab` if repaired? | **No — the Pi** | `home-lab` is out of scope entirely. This workload never outgrows the Pi. |
 
@@ -20,7 +20,7 @@ open question 4 and produced three more decisions:
 
 | Question | Decision | Notes |
 |---|---|---|
-| Private or shared? | **Both** | Every account owns a private vault; shared vaults have members. |
+| Private or shared? | **Both — reversed 2026-09-07** | Every account owned a private vault; shared vaults have members. See "No private vaults" below: there is one kind now. |
 | How are accounts made? | **An admin CLI, `quartz-admin`** | No signup endpoint exists, so there is nothing public to attack. Membership changes are CLI-only too. |
 | How many people? | **2–5** | No quotas, no email flows. Worth revisiting past ~25. |
 
@@ -248,6 +248,39 @@ inside it. Only the first is built.
   hands back a value, but this one can be refused by the server — a wrong
   current password, one too short — and a fresh sheet would throw away three
   filled fields to say so.
+
+## No private vaults (2026-09-07)
+
+`Private` was never a configuration of a vault: it *meant* "the one every
+account is given when it is created". Once folders could be promoted, that
+became the odd one out — a promoted folder registers with a membership list
+holding only its owner, so the automatic vault was an empty directory nobody
+published to, and the switcher had already stopped grouping by kind.
+
+| Question | Decision | Notes |
+|---|---|---|
+| Keep two kinds? | **No** | A vault is a directory with a membership list. An account owning one vault holds the same kind of thing as an account sharing five. |
+| What does an account start with? | **Nothing** | `quartz-admin user add` creates the account alone. Publishing a folder is what makes a vault, which is also the only way one gets notes in it. |
+| What replaces the deletion rule? | **"Would this strand anyone else?"** | `DeleteUser` asked `kind = 'private'`; it now unregisters a vault the account owned iff no one else is a member. |
+| Drop the `kind` column? | **Not yet** | It stays `NOT NULL`, written and never read, so an existing `accounts.sqlite` opens unchanged. Dropping it is a migration, and that file is the one thing here with no rebuild path. |
+
+What fell out of it:
+
+- **The old rule was wrong, not just redundant.** A vault its owner had never
+  shared was `shared` in the schema, so deleting the account *kept* it and
+  reported it as needing a new owner — when there was nobody to give it to.
+  Asking about membership deletes it, and hands back its root so `-purge` can
+  take the notes too.
+- **`vault remove` stopped being a special case.** It used to refuse a private
+  vault whose owner still existed ("remove the account instead"); it now
+  refuses any vault other people are still in, which is the thing actually
+  worth refusing.
+- **`quartzctl` has no default vault to guess.** With no "your own" to fall
+  back on, it takes the only vault, or the only one you own, and otherwise
+  insists on `-vault` — syncing the wrong folder silently was the alternative.
+- **A new account's first screen is an empty one.** It offers to open a folder
+  and to sign out, because an account that owns nothing would otherwise be
+  signed in to a blank window with no way forward and no way back.
 
 ## Decisions taken while building
 

@@ -2,14 +2,15 @@ import { describe, expect, it } from 'vitest'
 import type { VaultSummary } from '../api/client'
 import {
   chooseVault,
+  isLocal,
   mergeVaults,
   slugForVault,
   vaultHint,
   type LocalVaultSummary,
 } from './vaults'
 
-const mine: VaultSummary = { id: 'juli', name: 'juli', kind: 'private', owner: 'juli', role: 'owner' }
-const casa: VaultSummary = { id: 'casa', name: 'Casa', kind: 'shared', owner: 'maria', role: 'member' }
+const mine: VaultSummary = { id: 'juli', name: 'juli', owner: 'juli', role: 'owner' }
+const casa: VaultSummary = { id: 'casa', name: 'Casa', owner: 'maria', role: 'member' }
 const folder: LocalVaultSummary = {
   id: 'local-8f14e45fce',
   name: 'Obsidian',
@@ -37,7 +38,7 @@ describe('merging the vault list', () => {
     const clash: LocalVaultSummary = { ...folder, id: 'juli' }
     const merged = mergeVaults([mine], [clash])
     expect(merged).toHaveLength(1)
-    expect(merged[0].kind).toBe('private')
+    expect(isLocal(merged[0])).toBe(false)
   })
 })
 
@@ -60,10 +61,10 @@ describe('choosing which vault to open', () => {
 
 describe('describing a vault', () => {
   it('says where each one lives, and whose it is', () => {
-    expect(vaultHint(mine, 'juli')).toBe('private')
+    // Ownership is the whole of it now: yours, somebody else's, or this
+    // machine's. There is no third thing a vault can be.
+    expect(vaultHint(mine, 'juli')).toBe('yours')
     expect(vaultHint(casa, 'juli')).toBe('shared · maria')
-    // Owned by the person looking at it: a promoted folder, not someone
-    // else's vault, however the schema files it.
     expect(vaultHint(casa, 'maria')).toBe('yours')
     expect(vaultHint(folder, 'juli')).toBe('on this device')
   })

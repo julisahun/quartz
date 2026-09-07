@@ -58,7 +58,7 @@ func startServer(t *testing.T) *testServer {
 	return ts
 }
 
-// account creates a user (with their private vault) unless they already exist.
+// account creates a user, and a vault named after them, unless they exist already.
 func (ts *testServer) account(name string) {
 	ts.t.Helper()
 	if exists, err := ts.store.UserExists(name); err != nil {
@@ -66,7 +66,10 @@ func (ts *testServer) account(name string) {
 	} else if exists {
 		return
 	}
-	if err := provision.User(ts.store, ts.cfg, name, password); err != nil {
+	if err := ts.store.CreateUser(name, password); err != nil {
+		ts.t.Fatal(err)
+	}
+	if err := provision.NewVault(ts.store, ts.cfg, name, name, name); err != nil {
 		ts.t.Fatal(err)
 	}
 }
@@ -329,7 +332,7 @@ func TestBootstrapAdoptsIdenticalFiles(t *testing.T) {
 }
 
 func TestVaultsAreIsolatedBetweenAccounts(t *testing.T) {
-	// Two people, two private vaults, one server: neither mirror ever sees
+	// Two people, a vault each, one server: neither mirror ever sees
 	// the other's notes.
 	ts := startServer(t)
 	julis := newDeviceAs(t, ts, "juli-laptop", "juli", "")
@@ -356,10 +359,10 @@ func TestVaultsAreIsolatedBetweenAccounts(t *testing.T) {
 	}
 }
 
-func TestSharedVaultSyncsBetweenAccounts(t *testing.T) {
+func TestAVaultSyncsBetweenAccounts(t *testing.T) {
 	ts := startServer(t)
 	ts.account("maria")
-	if err := provision.SharedVault(ts.store, ts.cfg, "casa", "Casa", "juli"); err != nil {
+	if err := provision.NewVault(ts.store, ts.cfg, "casa", "Casa", "juli"); err != nil {
 		t.Fatal(err)
 	}
 	if err := ts.store.AddMember("casa", "maria", accounts.Member); err != nil {
@@ -389,20 +392,30 @@ func TestSharedVaultSyncsBetweenAccounts(t *testing.T) {
 
 func TestChoosingAVault(t *testing.T) {
 	vaults := []vaultInfo{
-		{ID: "juli", Kind: "private", Owner: "juli", Role: "owner"},
-		{ID: "casa", Kind: "shared", Owner: "juli", Role: "owner"},
+		{ID: "juli", Owner: "juli", Role: "owner"},
+		{ID: "casa", Owner: "juli", Role: "owner"},
 	}
-	if got, err := chooseVault(vaults, "", "juli"); err != nil || got != "juli" {
-		t.Errorf("default = %q, %v; want the private vault", got, err)
+	// Two vaults, both hers: there is no "the account's own" to fall back on
+	// any more, and guessing would sync the wrong folder without saying so.
+	if _, err := chooseVault(vaults, "", "juli"); err == nil {
+		t.Error("two owned vaults were resolved without -vault")
 	}
 	if got, err := chooseVault(vaults, "casa", "juli"); err != nil || got != "casa" {
 		t.Errorf("explicit = %q, %v", got, err)
 	}
+	// One of the two is hers, so there is nothing to ask about.
+	mixed := []vaultInfo{
+		{ID: "casa", Owner: "juli", Role: "member"},
+		{ID: "marias", Owner: "maria", Role: "owner"},
+	}
+	if got, err := chooseVault(mixed, "", "maria"); err != nil || got != "marias" {
+		t.Errorf("only one owned = %q, %v", got, err)
+	}
 	if _, err := chooseVault(vaults, "someone-else", "juli"); err == nil {
 		t.Error("a vault the account cannot open was accepted")
 	}
-	// A member with no private vault of their own, and only one option.
-	guest := []vaultInfo{{ID: "casa", Kind: "shared", Owner: "juli", Role: "member"}}
+	// A member with only one option.
+	guest := []vaultInfo{{ID: "casa", Owner: "juli", Role: "member"}}
 	if got, err := chooseVault(guest, "", "maria"); err != nil || got != "casa" {
 		t.Errorf("single option = %q, %v", got, err)
 	}

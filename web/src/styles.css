@@ -286,7 +286,8 @@ button:focus-visible {
   min-height: var(--tap);
 }
 
-.login-card button[type='submit'] {
+.login-card button[type='submit'],
+.login-card .primary {
   margin-top: 0.4rem;
   min-height: var(--tap);
   background: var(--accent);

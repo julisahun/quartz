@@ -1,4 +1,5 @@
 import { useApp, type SyncState } from '../state/store'
+import { isLocal } from '../state/vaults'
 import {
   promptDelete,
   promptForgetFolder,
@@ -34,7 +35,7 @@ export function StatusBar({ livePreview, onToggleLivePreview }: Props) {
   const unsaved = useApp((s) => s.unsaved)
   const currentPath = useApp((s) => s.currentPath)
   const currentVault = useApp((s) => s.currentVault)
-  const isFolder = useApp((s) => s.vaults.some((v) => v.id === s.currentVault && v.kind === 'local'))
+  const isFolder = useApp((s) => s.vaults.some((v) => v.id === s.currentVault && isLocal(v)))
   const signedIn = useApp((s) => s.signedIn)
   const showLogin = useApp((s) => s.showLogin)
   const syncNow = useApp((s) => s.syncNow)

@@ -22,7 +22,9 @@ export interface LocalVaultSummary {
 export type Vault = VaultSummary | LocalVaultSummary
 
 export function isLocal(vault: Vault): vault is LocalVaultSummary {
-  return vault.kind === 'local'
+  // A server vault has no `kind` at all: the field exists only to mark the
+  // folders this device opened for itself.
+  return 'kind' in vault && vault.kind === 'local'
 }
 
 /**
@@ -39,12 +41,16 @@ export function mergeVaults(server: VaultSummary[], local: LocalVaultSummary[]):
 }
 
 /**
- * Which vault to open: the one last used, else the account's own, else
+ * Which vault to open: the one last used, else one the account owns, else
  * whatever is there — which on a machine with no account is a folder.
+ *
+ * There is no longer a vault the account was *given*, so "your own" is just
+ * ownership; among several the first is as good a guess as any, because the
+ * last-used id covers every case anybody actually notices.
  */
 export function chooseVault(vaults: Vault[], user: string, last?: string): string | undefined {
   if (last && vaults.some((v) => v.id === last)) return last
-  const own = vaults.find((v) => v.kind === 'private' && v.owner === user)
+  const own = vaults.find((v) => !isLocal(v) && v.owner === user)
   return (own ?? vaults[0])?.id
 }
 
@@ -74,9 +80,6 @@ export function slugForVault(name: string): string {
 /** How a vault describes itself in a menu, under its name. */
 export function vaultHint(vault: Vault, user: string): string {
   if (isLocal(vault)) return 'on this device'
-  if (vault.kind === 'private') return 'private'
-  // A promoted folder has a member list holding only its owner. That is
-  // "shared" to the schema and plainly yours to everyone else.
   if (vault.owner === user) return 'yours'
   return `shared · ${vault.owner}`
 }

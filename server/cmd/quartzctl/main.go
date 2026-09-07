@@ -118,15 +118,16 @@ func cmdLogin(args []string) error {
 		fmt.Fprintln(os.Stderr, "other vaults you can sync with -vault:")
 		for _, v := range vaults {
 			if v.ID != chosen {
-				fmt.Fprintf(os.Stderr, "  %s (%s, %s)\n", v.ID, v.Kind, v.Role)
+				fmt.Fprintf(os.Stderr, "  %s (%s, %s)\n", v.ID, v.Owner, v.Role)
 			}
 		}
 	}
 	return nil
 }
 
-// chooseVault picks the vault to sync: the one asked for, or the account's own
-// private vault when nothing was asked for.
+// chooseVault picks the vault to sync: the one asked for, else the only one
+// there is, else the account's own — and if it owns several, it has to say
+// which, because guessing would sync the wrong folder silently.
 func chooseVault(vaults []vaultInfo, want, user string) (string, error) {
 	if want != "" {
 		for _, v := range vaults {
@@ -136,13 +137,17 @@ func chooseVault(vaults []vaultInfo, want, user string) (string, error) {
 		}
 		return "", fmt.Errorf("you have no access to a vault called %q", want)
 	}
-	for _, v := range vaults {
-		if v.Kind == "private" && v.Owner == user {
-			return v.ID, nil
-		}
-	}
 	if len(vaults) == 1 {
 		return vaults[0].ID, nil
+	}
+	owned := []string{}
+	for _, v := range vaults {
+		if v.Owner == user {
+			owned = append(owned, v.ID)
+		}
+	}
+	if len(owned) == 1 {
+		return owned[0], nil
 	}
 	return "", fmt.Errorf("say which vault to sync with -vault")
 }

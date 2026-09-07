@@ -8,6 +8,7 @@ import { QuickOpen } from './ui/QuickOpen'
 import { Sidebar } from './ui/Sidebar'
 import { StatusBar } from './ui/StatusBar'
 import { LoginScreen } from './ui/LoginScreen'
+import { foldersSupported } from './vault/folders'
 import { trackViewport } from './editor/mobile'
 import { startBackgroundSync, useApp } from './state/store'
 import { noteTitle } from './state/notes'
@@ -20,6 +21,12 @@ export function App() {
   // reports "local" whatever the session is doing, which used to swallow this
   // banner on the one device that most needed it.
   const lostSession = useApp((s) => !s.signedIn && s.user !== '')
+  // Signed in and owning nothing. An account is not given a vault any more, so
+  // this is the ordinary first screen for a new one rather than a fault.
+  // Gated on the session, not just the count: between `phase: 'ready'` and the
+  // vault list arriving there is one render with neither, and it must not flash
+  // this screen at somebody who does have vaults.
+  const noVaults = useApp((s) => s.signedIn && s.vaults.length === 0)
   const isPhone = useIsPhone()
 
   const [livePreview, setLivePreview] = useState(() => localStorage.getItem('livePreview') !== 'off')
@@ -81,6 +88,16 @@ export function App() {
     return (
       <>
         <LoginScreen />
+        <Dialogs />
+      </>
+    )
+  }
+
+  if (noVaults) {
+    return (
+      <>
+        <NoVaults />
+        <Notices />
         <Dialogs />
       </>
     )
@@ -155,6 +172,46 @@ function useScreens(enabled: boolean) {
   }, [enabled])
 
   return { screen, showNote, back }
+}
+
+/**
+ * Signed in, with nothing to open.
+ *
+ * Creating an account no longer creates a vault for it, so an account starts
+ * out owning nothing and this is what it sees. It is not a dead end: a vault
+ * is made by publishing a folder, so the way forward is the same "open a
+ * folder" this app offers everywhere else — and the way out is signing out,
+ * which has to stay reachable from here or a new account would be stuck.
+ */
+function NoVaults() {
+  const user = useApp((s) => s.user)
+  const openFolder = useApp((s) => s.openFolder)
+  const logout = useApp((s) => s.logout)
+
+  return (
+    <div className="login">
+      <div className="login-card">
+        <h1>Nothing open yet</h1>
+        <p className="muted">
+          Signed in as {user}. A vault is a folder of markdown files: open one from this
+          machine, then <b>sync…</b> to publish it here.
+        </p>
+        {foldersSupported() ? (
+          <button className="primary" onClick={() => void openFolder()}>
+            Open a folder
+          </button>
+        ) : (
+          <p className="muted">
+            This browser cannot open a folder of its own — use the desktop app, or a
+            Chromium browser, and this account's vaults will follow.
+          </p>
+        )}
+      </div>
+      <button className="ghost login-alt" onClick={() => void logout()}>
+        Sign out
+      </button>
+    </div>
+  )
 }
 
 /**

@@ -94,7 +94,7 @@ func (r *Registry) start(meta accounts.Vault) (*running, error) {
 		idx.Close()
 		return nil, err
 	}
-	log.Info("vault open", "root", v.Root(), "kind", meta.Kind)
+	log.Info("vault open", "root", v.Root(), "owner", meta.Owner)
 	return &running{svc: svc, idx: idx, git: git, cancel: cancel}, nil
 }
 

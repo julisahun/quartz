@@ -66,7 +66,6 @@ export class OfflineError extends Error {
 export interface VaultSummary {
   id: string
   name: string
-  kind: 'private' | 'shared'
   owner: string
   role: 'owner' | 'member'
 }

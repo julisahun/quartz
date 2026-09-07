@@ -68,7 +68,12 @@ type signedIn struct {
 
 func (h *harness) account(name string) *signedIn {
 	h.t.Helper()
-	if err := provision.User(h.store, h.cfg, name, testPassword); err != nil {
+	// An account owns nothing on its own now, so the harness gives it a vault
+	// named after it — which is what these tests used to get for free.
+	if err := h.store.CreateUser(name, testPassword); err != nil {
+		h.t.Fatal(err)
+	}
+	if err := provision.NewVault(h.store, h.cfg, name, name, name); err != nil {
 		h.t.Fatal(err)
 	}
 	return h.signIn(name, testPassword)
@@ -357,13 +362,13 @@ func TestVaultIdCannotEscape(t *testing.T) {
 	}
 }
 
-func TestSharedVault(t *testing.T) {
+func TestSharingAVault(t *testing.T) {
 	h := newHarness(t)
 	juli := h.account("juli")
 	maria := h.account("maria")
 	outsider := h.account("outsider")
 
-	if err := provision.SharedVault(h.store, h.cfg, "casa", "Casa", "juli"); err != nil {
+	if err := provision.NewVault(h.store, h.cfg, "casa", "Casa", "juli"); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.store.AddMember("casa", "maria", accounts.Member); err != nil {
@@ -399,7 +404,7 @@ func TestSharedVault(t *testing.T) {
 	for _, v := range list.Vaults {
 		if v.ID == "casa" {
 			found = true
-			if v.Role != accounts.Member || v.Kind != accounts.Shared {
+			if v.Role != accounts.Member {
 				t.Errorf("maria's view of casa = %+v", v)
 			}
 		}

@@ -91,7 +91,6 @@ func (c *client) do(method, path string, body io.Reader, headers map[string]stri
 type vaultInfo struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
-	Kind  string `json:"kind"`
 	Owner string `json:"owner"`
 	Role  string `json:"role"`
 }

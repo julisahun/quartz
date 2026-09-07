@@ -93,11 +93,11 @@ func TestVaultsAndAccess(t *testing.T) {
 		}
 	}
 
-	private := Vault{ID: "juli", Name: "juli", Kind: Private, Root: "/srv/quartz/vaults/juli", Owner: "juli"}
+	private := Vault{ID: "juli", Name: "juli", Root: "/srv/quartz/vaults/juli", Owner: "juli"}
 	if err := s.CreateVault(private); err != nil {
 		t.Fatal(err)
 	}
-	shared := Vault{ID: "casa", Name: "Casa", Kind: Shared, Root: "/srv/quartz/vaults/casa", Owner: "juli"}
+	shared := Vault{ID: "casa", Name: "Casa", Root: "/srv/quartz/vaults/casa", Owner: "juli"}
 	if err := s.CreateVault(shared); err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestVaultsAndAccess(t *testing.T) {
 
 	// Nobody else can reach it until they are added.
 	if _, err := s.Access("maria", "juli"); err != ErrNotAMember {
-		t.Fatalf("maria's access to juli's private vault = %v, want ErrNotAMember", err)
+		t.Fatalf("maria's access to juli's own vault = %v, want ErrNotAMember", err)
 	}
 	if err := s.AddMember("casa", "maria", Member); err != nil {
 		t.Fatal(err)
@@ -163,7 +163,7 @@ func TestDeletingAUserRemovesTheirAccess(t *testing.T) {
 	if err := s.CreateUser("maria", "password"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateVault(Vault{ID: "casa", Name: "Casa", Kind: Shared, Root: "/tmp/casa", Owner: "juli"}); err != nil {
+	if err := s.CreateVault(Vault{ID: "casa", Name: "Casa", Root: "/tmp/casa", Owner: "juli"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddMember("casa", "maria", Member); err != nil {
@@ -173,7 +173,7 @@ func TestDeletingAUserRemovesTheirAccess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := s.DeleteUser("maria"); err != nil {
+	if _, _, err := s.DeleteUser("maria"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Access("maria", "casa"); err != ErrNotAMember {
@@ -182,38 +182,47 @@ func TestDeletingAUserRemovesTheirAccess(t *testing.T) {
 	if _, ok, _ := s.LookupSession("hash-maria"); ok {
 		t.Error("a deleted user's session still resolves")
 	}
-	if _, err := s.DeleteUser("maria"); err != ErrNoSuchUser {
+	if _, _, err := s.DeleteUser("maria"); err != ErrNoSuchUser {
 		t.Errorf("deleting twice = %v", err)
 	}
 }
 
-func TestDeletingAUserTakesTheirPrivateVaultWithThem(t *testing.T) {
+func TestDeletingAUserTakesTheVaultsNobodyElseCanOpen(t *testing.T) {
 	s := openTestStore(t)
 	for _, name := range []string{"juli", "maria"} {
 		if err := s.CreateUser(name, "password"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := s.CreateVault(Vault{ID: "maria", Name: "maria", Kind: Private, Root: "/tmp/maria", Owner: "maria"}); err != nil {
+	if err := s.CreateVault(Vault{ID: "maria", Name: "maria", Root: "/tmp/maria", Owner: "maria"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateVault(Vault{ID: "casa", Name: "Casa", Kind: Shared, Root: "/tmp/casa", Owner: "maria"}); err != nil {
+	if err := s.CreateVault(Vault{ID: "casa", Name: "Casa", Root: "/tmp/casa", Owner: "maria"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddMember("casa", "juli", Member); err != nil {
 		t.Fatal(err)
 	}
 
-	orphaned, err := s.DeleteUser("maria")
+	removed, orphaned, err := s.DeleteUser("maria")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Her private vault is unregistered: nobody could ever open it again.
+	// The vault she never shared is unregistered: nobody could ever open it
+	// again. Asking "is it private?" used to keep this one and report it as
+	// needing a new owner, when there was nobody to give it to.
 	if _, err := s.Vault("maria"); err != ErrNoSuchVault {
-		t.Errorf("the private vault is still registered: %v", err)
+		t.Errorf("a vault only she could open is still registered: %v", err)
 	}
-	// The shared one survives, because juli is still using it — but it is
+	if len(removed) != 1 || removed[0].ID != "maria" {
+		t.Errorf("removed = %+v, want just maria", removed)
+	}
+	// Returned with its root, so a caller that means to delete the notes can.
+	if len(removed) == 1 && removed[0].Root != "/tmp/maria" {
+		t.Errorf("removed root = %q", removed[0].Root)
+	}
+	// The one juli is in survives, because she is still using it — but it is
 	// reported so an admin can hand it to someone.
 	if _, err := s.Vault("casa"); err != nil {
 		t.Errorf("the shared vault was deleted from under its members: %v", err)
@@ -233,7 +242,7 @@ func TestDeleteVault(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := s.CreateVault(Vault{ID: "casa", Name: "Casa", Kind: Shared, Root: "/tmp/casa", Owner: "juli"}); err != nil {
+	if err := s.CreateVault(Vault{ID: "casa", Name: "Casa", Root: "/tmp/casa", Owner: "juli"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddMember("casa", "maria", Member); err != nil {

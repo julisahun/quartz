@@ -64,7 +64,7 @@ func main() {
 func usage() {
 	fmt.Fprintln(os.Stderr, `quartz-admin — accounts and vaults
 
-  user add <name>                       create an account and its private vault
+  user add <name>                       create an account (it owns no vault yet)
   user passwd <name>                    change a password
   user list                             who exists
   user remove <name> [-purge]           remove an account (-purge deletes its notes)
@@ -113,10 +113,13 @@ func userCommand(store *accounts.Store, cfg config.Config, command string, args 
 		if err != nil {
 			return err
 		}
-		if err := provision.User(store, cfg, name, password); err != nil {
+		if err := store.CreateUser(name, password); err != nil {
 			return err
 		}
-		fmt.Printf("created %s with a private vault at %s/%s\n", name, cfg.VaultsDir(), name)
+		// An account owns nothing to begin with. Publishing a folder from the
+		// app is what gives it a vault — and what puts notes in the directory,
+		// which an empty one created here never had.
+		fmt.Printf("created %s — publish a folder from the app to give it a vault\n", name)
 		return nil
 
 	case "passwd":
@@ -155,17 +158,17 @@ func userCommand(store *accounts.Store, cfg config.Config, command string, args 
 
 	case "remove":
 		fs := flag.NewFlagSet("remove", flag.ExitOnError)
-		purge := fs.Bool("purge", false, "also delete the user's private vault and its notes")
+		purge := fs.Bool("purge", false, "also delete the notes in the vaults that went with the account")
 		positional := splitArgs(fs, args)
 		if len(positional) < 1 {
 			return errors.New("usage: quartz-admin user remove <name> [-purge]")
 		}
 		name := positional[0]
 
-		// Look the vault up before the account goes, since removing the
-		// account unregisters it.
-		privateVault, lookupErr := store.Vault(name)
-		orphaned, err := store.DeleteUser(name)
+		// The vaults nobody else could open are unregistered with the account
+		// and handed back, so -purge knows exactly which directories were the
+		// account's alone.
+		removed, orphaned, err := store.DeleteUser(name)
 		if err != nil {
 			return err
 		}
@@ -173,21 +176,22 @@ func userCommand(store *accounts.Store, cfg config.Config, command string, args 
 
 		for _, id := range orphaned {
 			fmt.Fprintf(os.Stderr,
-				"warning: shared vault %q has no owner now — give it one with: quartz-admin vault share %s <user> -role owner\n",
+				"warning: vault %q has other members and no owner now — give it one with: quartz-admin vault share %s <user> -role owner\n",
 				id, id)
 		}
 
-		switch {
-		case !*purge:
-			fmt.Println("their notes are still on disk; remove them with -purge")
-		case lookupErr != nil:
-			fmt.Fprintf(os.Stderr, "could not find their vault to delete: %v\n", lookupErr)
-		default:
-			if err := provision.DeleteVaultData(cfg, name, privateVault.Root); err != nil {
-				fmt.Fprintf(os.Stderr, "could not delete the vault data: %v\n", err)
-			} else {
-				fmt.Printf("deleted the notes in %s\n", privateVault.Root)
+		if !*purge {
+			if len(removed) > 0 {
+				fmt.Println("their notes are still on disk; remove them with -purge")
 			}
+			return nil
+		}
+		for _, v := range removed {
+			if err := provision.DeleteVaultData(cfg, v.ID, v.Root); err != nil {
+				fmt.Fprintf(os.Stderr, "could not delete the notes in %s: %v\n", v.Root, err)
+				continue
+			}
+			fmt.Printf("deleted the notes in %s\n", v.Root)
 		}
 		return nil
 	}
@@ -205,7 +209,7 @@ func vaultCommand(store *accounts.Store, cfg config.Config, command string, args
 			return errors.New(`usage: quartz-admin vault create <id> -owner <user> [-name "Display name"]`)
 		}
 		id := positional[0]
-		if err := provision.SharedVault(store, cfg, id, *name, *owner); err != nil {
+		if err := provision.NewVault(store, cfg, id, *name, *owner); err != nil {
 			return err
 		}
 		fmt.Printf("created shared vault %s owned by %s\n", id, *owner)
@@ -243,7 +247,7 @@ func vaultCommand(store *accounts.Store, cfg config.Config, command string, args
 			return err
 		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "VAULT\tKIND\tOWNER\tMEMBERS\tROOT")
+		fmt.Fprintln(w, "VAULT\tOWNER\tMEMBERS\tROOT")
 		for _, v := range vaults {
 			members, err := store.Members(v.ID)
 			if err != nil {
@@ -253,7 +257,7 @@ func vaultCommand(store *accounts.Store, cfg config.Config, command string, args
 			for user := range members {
 				names = append(names, user)
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", v.ID, v.Kind, v.Owner, strings.Join(names, " "), v.Root)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", v.ID, v.Owner, strings.Join(names, " "), v.Root)
 		}
 		return w.Flush()
 
@@ -269,16 +273,16 @@ func vaultCommand(store *accounts.Store, cfg config.Config, command string, args
 		if err != nil {
 			return err
 		}
-		if vault.Kind == accounts.Private {
-			// A private vault belongs to its owner — unless that account is
-			// already gone, in which case this is exactly how you tidy up.
-			ownerExists, err := store.UserExists(vault.Owner)
-			if err != nil {
-				return err
-			}
-			if ownerExists {
-				return fmt.Errorf("%s is %s's private vault; remove the account instead", id, vault.Owner)
-			}
+		// Removing a vault other people are in takes their notes away too, so
+		// it has to be an explicit act on each membership first. A vault
+		// holding only its owner is the owner's business alone.
+		members, err := store.Members(id)
+		if err != nil {
+			return err
+		}
+		if others := len(members) - 1; others > 0 {
+			return fmt.Errorf("%s still has %d other member(s); remove them first with: quartz-admin vault unshare %s <user>",
+				id, others, id)
 		}
 		if err := store.DeleteVault(id); err != nil {
 			return err

@@ -22,16 +22,31 @@ func setup(t *testing.T) (*accounts.Store, config.Config) {
 	return store, cfg
 }
 
-func TestUserGetsAPrivateVault(t *testing.T) {
+func TestANewAccountOwnsNothing(t *testing.T) {
+	store, _ := setup(t)
+	if err := store.CreateUser("maria", "a good password"); err != nil {
+		t.Fatal(err)
+	}
+	// Creating an account used to create a vault named after it. Nothing is
+	// automatic now: a vault arrives when a folder is published.
+	if vaults, err := store.VaultsFor("maria"); err != nil || len(vaults) != 0 {
+		t.Fatalf("vaults for a new account = %+v, %v", vaults, err)
+	}
+}
+
+func TestNewVaultBelongsToItsOwner(t *testing.T) {
 	store, cfg := setup(t)
-	if err := User(store, cfg, "maria", "a good password"); err != nil {
+	if err := store.CreateUser("maria", "a good password"); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewVault(store, cfg, "maria", "maria", "maria"); err != nil {
 		t.Fatal(err)
 	}
 	vault, err := store.Vault("maria")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if vault.Kind != accounts.Private || vault.Owner != "maria" {
+	if vault.Owner != "maria" {
 		t.Fatalf("vault = %+v", vault)
 	}
 	if _, err := os.Stat(vault.Root); err != nil {
@@ -42,20 +57,19 @@ func TestUserGetsAPrivateVault(t *testing.T) {
 	}
 }
 
-func TestSharedVaultNeedsAnExistingOwner(t *testing.T) {
+func TestNewVaultNeedsAnExistingOwner(t *testing.T) {
 	store, cfg := setup(t)
-	if err := SharedVault(store, cfg, "casa", "Casa", "nobody"); err != accounts.ErrNoSuchUser {
+	if err := NewVault(store, cfg, "casa", "Casa", "nobody"); err != accounts.ErrNoSuchUser {
 		t.Fatalf("unknown owner = %v", err)
 	}
-	if err := User(store, cfg, "juli", "a good password"); err != nil {
+	if err := store.CreateUser("juli", "a good password"); err != nil {
 		t.Fatal(err)
 	}
-	if err := SharedVault(store, cfg, "casa", "Casa", "juli"); err != nil {
+	if err := NewVault(store, cfg, "casa", "Casa", "juli"); err != nil {
 		t.Fatal(err)
 	}
-	// A shared vault cannot take a name already used by a private one: the
-	// two share a namespace, and that namespace is the URL.
-	if err := SharedVault(store, cfg, "juli", "Clash", "juli"); err != accounts.ErrVaultExists {
+	// One namespace for every vault, and that namespace is the URL.
+	if err := NewVault(store, cfg, "casa", "Clash", "juli"); err != accounts.ErrVaultExists {
 		t.Fatalf("name clash = %v, want ErrVaultExists", err)
 	}
 }
@@ -109,7 +123,7 @@ func TestLegacyDeploymentIsCarriedOverInPlace(t *testing.T) {
 
 func TestLegacyBootstrapSkippedOnceAccountsExist(t *testing.T) {
 	store, cfg := setup(t)
-	if err := User(store, cfg, "maria", "a good password"); err != nil {
+	if err := store.CreateUser("maria", "a good password"); err != nil {
 		t.Fatal(err)
 	}
 	cfg.LegacyUser = "juli"
@@ -125,8 +139,8 @@ func TestLegacyBootstrapSkippedOnceAccountsExist(t *testing.T) {
 
 func hashOf(t *testing.T, password string) string {
 	t.Helper()
-	store, cfg := setup(t)
-	if err := User(store, cfg, "tmp", password); err != nil {
+	store, _ := setup(t)
+	if err := store.CreateUser("tmp", password); err != nil {
 		t.Fatal(err)
 	}
 	var hash string

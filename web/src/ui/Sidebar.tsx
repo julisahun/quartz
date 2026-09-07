@@ -5,7 +5,7 @@ import { persisted } from '../state/persist'
 import { useApp } from '../state/store'
 import { tagMatches } from '../state/tags'
 import { buildTree, foldersTo } from '../state/tree'
-import { vaultHint } from '../state/vaults'
+import { isLocal, vaultHint } from '../state/vaults'
 import { foldersSupported } from '../vault/folders'
 import {
   promptForgetFolder,
@@ -116,7 +116,7 @@ export function Sidebar({ onNavigate, inert }: Props) {
       ...(vaults.length > 1 ? [{ label: 'Switch vault…', run: vaultMenu }] : []),
       // Not every build can open one: iOS and Firefox have no way to.
       ...(foldersSupported() ? [{ label: 'Open folder…', run: () => void openFolder() }] : []),
-      ...(open?.kind === 'local'
+      ...(open && isLocal(open)
         ? [
             // Publishing needs an account to publish to.
             ...(signedIn

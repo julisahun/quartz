@@ -13,39 +13,42 @@ import (
 	"quartz/internal/config"
 )
 
-// User creates an account and its private vault. The vault directory is
-// created here so the owner's notes have somewhere to land before the server
-// ever opens it.
-func User(store *accounts.Store, cfg config.Config, name, password string) error {
-	if err := store.CreateUser(name, password); err != nil {
-		return err
-	}
-	return privateVault(store, cfg, name, "")
+// NewVault registers a vault owned by one account, with its directory under
+// the vaults base. Other people are added to it with the CLI; a vault holding
+// only its owner is not a different kind of thing from one holding five.
+func NewVault(store *accounts.Store, cfg config.Config, id, displayName, owner string) error {
+	return AdoptVault(store, cfg, id, displayName, owner, "")
 }
 
-// UserWithHash is User for an account carried over from an existing argon2id
-// hash, with an optional existing vault directory to adopt in place.
-func UserWithHash(store *accounts.Store, cfg config.Config, name, hash, existingRoot string) error {
-	if err := store.CreateUserWithHash(name, hash); err != nil {
+// AdoptVault is NewVault for a directory that already exists somewhere else,
+// which is how a single-user deployment's vault is carried over: it is
+// registered where it stands rather than moved.
+func AdoptVault(store *accounts.Store, cfg config.Config, id, displayName, owner, existingRoot string) error {
+	if exists, err := store.UserExists(owner); err != nil {
 		return err
+	} else if !exists {
+		return accounts.ErrNoSuchUser
 	}
-	return privateVault(store, cfg, name, existingRoot)
-}
-
-func privateVault(store *accounts.Store, cfg config.Config, name, existingRoot string) error {
+	if !accounts.ValidName(id) {
+		return accounts.ErrBadName
+	}
 	root := existingRoot
 	if root == "" {
-		root = filepath.Join(cfg.VaultsDir(), name)
+		root = filepath.Join(cfg.VaultsDir(), id)
 	}
+	// Created here so the owner's notes have somewhere to land before the
+	// server ever opens it.
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return err
 	}
+	if displayName == "" {
+		displayName = id
+	}
 	return store.CreateVault(accounts.Vault{
-		ID:    name, // a private vault is addressed by its owner's name
-		Name:  name,
-		Kind:  accounts.Private,
+		ID:    id,
+		Name:  displayName,
 		Root:  root,
-		Owner: name,
+		Owner: owner,
 	})
 }
 
@@ -62,43 +65,19 @@ func FromLegacyEnv(store *accounts.Store, cfg config.Config, log *slog.Logger) e
 		return nil
 	}
 	if cfg.LegacyUser == "" || cfg.LegacyPasswordHash == "" {
-		log.Warn("no accounts yet — create one with: quartz-admin user add <name>")
+		log.Warn("no accounts yet — create one with: quartz-admin user add <name>, " +
+			"then publish a folder from the app")
 		return nil
 	}
-	if err := UserWithHash(store, cfg, cfg.LegacyUser, cfg.LegacyPasswordHash, cfg.LegacyVaultDir); err != nil {
+	if err := store.CreateUserWithHash(cfg.LegacyUser, cfg.LegacyPasswordHash); err != nil {
+		return err
+	}
+	if err := AdoptVault(store, cfg, cfg.LegacyUser, cfg.LegacyUser, cfg.LegacyUser, cfg.LegacyVaultDir); err != nil {
 		return err
 	}
 	log.Info("carried the single-user configuration over to accounts",
 		"user", cfg.LegacyUser, "vault", cfg.LegacyVaultDir)
 	return nil
-}
-
-// SharedVault creates a vault owned by one user that others can be added to.
-func SharedVault(store *accounts.Store, cfg config.Config, id, displayName, owner string) error {
-	if exists, err := store.UserExists(owner); err != nil {
-		return err
-	} else if !exists {
-		return accounts.ErrNoSuchUser
-	}
-	if !accounts.ValidName(id) {
-		return accounts.ErrBadName
-	}
-	// A shared vault must not take the name of a private one; the vaults table
-	// shares one namespace, so this is enforced by its primary key.
-	root := filepath.Join(cfg.VaultsDir(), id)
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		return err
-	}
-	if displayName == "" {
-		displayName = id
-	}
-	return store.CreateVault(accounts.Vault{
-		ID:    id,
-		Name:  displayName,
-		Kind:  accounts.Shared,
-		Root:  root,
-		Owner: owner,
-	})
 }
 
 // DeleteVaultData removes a vault's notes and its index. Deliberately separate

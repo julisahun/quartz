@@ -148,7 +148,7 @@ export const useApp = create<AppState>()((set, get) => {
 
   /** True for a folder opened from disk, which belongs to no account. */
   const isLocalVault = (id: string): boolean =>
-    get().vaults.some((v) => v.id === id && v.kind === 'local')
+    get().vaults.some((v) => v.id === id && isLocal(v))
 
   /** The sync light for the open vault: a folder never syncs, whatever else is wrong. */
   const syncStateFor = (fallback: SyncState): SyncState => {

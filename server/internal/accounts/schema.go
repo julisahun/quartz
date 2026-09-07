@@ -16,7 +16,11 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS vaults (
   id      TEXT PRIMARY KEY,          -- also the path segment in the API
   name    TEXT    NOT NULL,
-  kind    TEXT    NOT NULL,          -- 'private' | 'shared'
+  -- Vestigial. It told a private vault — the one every account used to get
+  -- automatically — from a shared one. Every vault now has a membership list,
+  -- so there is only one kind and nothing reads this back; it stays NOT NULL
+  -- so a database written before the change opens unchanged.
+  kind    TEXT    NOT NULL,
   root    TEXT    NOT NULL,
   owner   TEXT    NOT NULL,
   created INTEGER NOT NULL

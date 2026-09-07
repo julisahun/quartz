@@ -192,7 +192,7 @@ func (a *API) handleCreateVault(w http.ResponseWriter, r *http.Request) {
 		body.Name = body.ID
 	}
 
-	switch err := provision.SharedVault(a.accounts, a.cfg, body.ID, body.Name, user); {
+	switch err := provision.NewVault(a.accounts, a.cfg, body.ID, body.Name, user); {
 	case err == nil:
 	case errors.Is(err, accounts.ErrVaultExists):
 		// Deliberately not 404-by-obscurity like the read routes: the id is a

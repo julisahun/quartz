@@ -71,7 +71,7 @@ describe('StatusBar, sitting in a folder opened from disk', () => {
       signedIn: false,
       vaults: [
         { id: 'local-abc', name: 'talasia', kind: 'local' },
-        { id: 'juli', name: 'juli', kind: 'private', owner: 'juli', role: 'owner' },
+        { id: 'juli', name: 'juli', owner: 'juli', role: 'owner' },
       ],
     })
     expect(buttons()).toContain('sign in')

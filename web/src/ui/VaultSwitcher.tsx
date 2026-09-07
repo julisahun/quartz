@@ -23,9 +23,9 @@ export function VaultSwitcher() {
 
   if (vaults.length <= 1 && !canOpenFolders) return null
 
-  // Grouped by who owns a vault, not by its kind. A promoted folder is a
-  // vault with a member list — "shared" in the schema — while having no one in
-  // it but you, and filing it under Shared would be a lie about your own notes.
+  // Grouped by who owns a vault. Every vault is one thing now — a directory
+  // with a membership list — so ownership is the only distinction left, and it
+  // is the one that was doing the work here anyway.
   const server = vaults.filter((v): v is VaultSummary => !isLocal(v))
   const mine = server.filter((v) => v.owner === user)
   const shared = server.filter((v) => v.owner !== user)
