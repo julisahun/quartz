@@ -1,4 +1,4 @@
-# Deploying quartz to the Pi
+# Deploying Quartz to the Pi
 
 Follows section 7 of `~/.claude/personal-deployments.md`: a hosted runner builds,
 Tailscale SSH ships, systemd runs it on a loopback port, cloudflared fronts it.
@@ -63,8 +63,11 @@ ssh pi
 ```
 
 No restart is needed: a new vault is opened the first time someone asks for it.
-Hand over the password out of band and let them change it later
-(`quartz-admin user passwd maria`).
+Hand over the password out of band. They can change it themselves afterwards
+from inside the app (`password…` in the status bar, or the phone's `⋯` menu),
+which is the point of handing over a temporary one. `quartz-admin user passwd
+maria` is still how a *forgotten* password is dealt with — that path needs
+shell access, exactly as creating the account did.
 
 To take access away: `quartz-admin vault unshare casa maria`, which applies to
 the next request — no waiting for a session to expire. `quartz-admin user

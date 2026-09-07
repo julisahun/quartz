@@ -70,3 +70,18 @@ func (s *Store) PurgeExpiredSessions() error {
 	_, err := s.db.Exec(`DELETE FROM sessions WHERE expires < ?`, time.Now().UnixMilli())
 	return err
 }
+
+// DeleteSessionsFor drops every session a user holds except one. A password
+// change is the moment someone acts on "that password may have leaked", so the
+// other devices go — but not the device doing the changing, which would
+// otherwise sign itself out mid-request.
+func (s *Store) DeleteSessionsFor(user, keepTokenHash string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, err := s.db.Exec(`DELETE FROM sessions WHERE user = ? AND token_hash <> ?`, user, keepTokenHash)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}

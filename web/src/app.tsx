@@ -16,7 +16,10 @@ export function App() {
   const phase = useApp((s) => s.phase)
   const boot = useApp((s) => s.boot)
   const currentPath = useApp((s) => s.currentPath)
-  const sync = useApp((s) => s.sync)
+  // Keyed on the session rather than on the sync light: a folder from disk
+  // reports "local" whatever the session is doing, which used to swallow this
+  // banner on the one device that most needed it.
+  const lostSession = useApp((s) => !s.signedIn && s.user !== '')
   const isPhone = useIsPhone()
 
   const [livePreview, setLivePreview] = useState(() => localStorage.getItem('livePreview') !== 'off')
@@ -62,7 +65,7 @@ export function App() {
   }, [])
 
   useEffect(() => {
-    document.title = currentPath ? `${noteTitle(currentPath)} — quartz` : 'quartz'
+    document.title = currentPath ? `${noteTitle(currentPath)} — Quartz` : 'Quartz'
   }, [currentPath])
 
   // A note can go away underneath the screen showing it — deleted here, or
@@ -85,7 +88,7 @@ export function App() {
 
   return (
     <div className={`app ${isPhone ? `phone screen-${screen}` : 'wide'}`}>
-      {sync === 'needs-login' && <SignedOutBanner />}
+      {lostSession && <SignedOutBanner />}
       <Sidebar onNavigate={showNote} inert={isPhone && screen === 'note'} />
       <main className="pane" ref={setPane} inert={isPhone && screen === 'list'}>
         <NoteEditor
@@ -171,7 +174,7 @@ function SignedOutBanner() {
         onSubmit={(event) => {
           event.preventDefault()
           setBusy(true)
-          void login(user || 'juli', password).finally(() => {
+          void login(user, password).finally(() => {
             setBusy(false)
             setPassword('')
           })

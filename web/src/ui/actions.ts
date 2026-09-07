@@ -1,7 +1,8 @@
 import { noteTitle } from '../state/notes'
 import { useApp } from '../state/store'
 import { slugForVault } from '../state/vaults'
-import { askConfirm, askText, openMenu } from './dialogs'
+import { ApiError, OfflineError } from '../api/client'
+import { askConfirm, askPassword, openMenu, askText } from './dialogs'
 
 /**
  * The note actions that need to ask something first. One copy, so the phone's
@@ -117,4 +118,45 @@ export async function promptSignOut(): Promise<void> {
     confirmLabel: 'Sign out',
   })
   if (ok) await useApp.getState().logout()
+}
+
+/**
+ * Changing the password needs the current one, so this is not a way back in
+ * for someone who has forgotten it — that is still `quartz-admin user passwd`
+ * over SSH. Signing the other devices out is offered and defaults to on: a
+ * session outlives the password it was opened with, so leaving them be would
+ * make the change mean less than it looks.
+ */
+export async function promptChangePassword(): Promise<void> {
+  await askPassword({
+    title: 'Change password',
+    async submit({ current, next, signOutOthers }) {
+      try {
+        await useApp.getState().changePassword({ current, next, signOutOthers })
+        return null
+      } catch (err) {
+        return passwordFailure(err)
+      }
+    },
+  })
+}
+
+function passwordFailure(err: unknown): string {
+  if (err instanceof OfflineError) {
+    return 'No connection to the server, so the password is unchanged.'
+  }
+  if (err instanceof ApiError) {
+    switch (err.code) {
+      case 'invalid_credentials':
+        return 'That is not your current password.'
+      case 'password_too_short':
+        return 'Use at least 8 characters.'
+      case 'rate_limited':
+        return 'Too many attempts. Try again in a few minutes.'
+    }
+    // A 401 for a *missing* session is a different thing from a wrong
+    // password, and says so rather than blaming what was typed.
+    if (err.isAuth) return 'Your session expired. Sign in again, then retry.'
+  }
+  return 'The password could not be changed.'
 }

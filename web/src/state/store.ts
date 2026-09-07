@@ -68,6 +68,15 @@ let indexSeq = 0
 interface AppState {
   phase: 'loading' | 'login' | 'ready'
   user: string
+  /**
+   * Whether this device holds a session.
+   *
+   * Not derivable from the vault list, which is what the UI used to ask: a
+   * machine with nothing but folders opened from disk has no server vault to
+   * infer it from, and that is exactly the machine on which signing in — and
+   * so publishing a folder — has to stay reachable.
+   */
+  signedIn: boolean
   device: string
   vaults: Vault[]
   currentVault: string | undefined
@@ -91,8 +100,19 @@ interface AppState {
   notices: Notice[]
 
   boot(): Promise<void>
+  /**
+   * Shows or hides the login screen over whatever is open. A device holding a
+   * folder from disk is never bounced to it, so asking is the only way in —
+   * and backing out has to leave the folder exactly as it was.
+   */
+  showLogin(show: boolean): void
   login(user: string, password: string): Promise<void>
   logout(): Promise<void>
+  /**
+   * Changes the account's own password. Throws on refusal so the sheet can
+   * say which refusal it was; the caller is ui/actions.ts.
+   */
+  changePassword(input: { current: string; next: string; signOutOthers: boolean }): Promise<void>
   selectVault(id: string): Promise<void>
   /** Picks a folder on disk and opens it as a vault of its own. */
   openFolder(): Promise<void>
@@ -261,7 +281,7 @@ export const useApp = create<AppState>()((set, get) => {
     // The folders opened on this device are not the server's to list, and
     // outlive any answer it gives.
     const merged = mergeVaults(vaults, get().vaults.filter(isLocal))
-    set({ user, vaults: merged })
+    set({ user, signedIn: true, vaults: merged })
     const chosen = chooseVault(merged, user, persisted.lastVault())
     if (chosen) await get().selectVault(chosen)
   }
@@ -269,6 +289,7 @@ export const useApp = create<AppState>()((set, get) => {
   return {
     phase: 'loading',
     user: '',
+    signedIn: false,
     device: '',
     vaults: [],
     currentVault: undefined,
@@ -291,7 +312,10 @@ export const useApp = create<AppState>()((set, get) => {
       const folders = (await listFolders())
         .filter((f) => !f.synced)
         .map((f): LocalVaultSummary => ({ ...f, kind: 'local' }))
-      set({ device, user: cachedUser, vaults: mergeVaults(cachedVaults, folders) })
+      // What this device last believed. An unreachable server must not read as
+      // a sign-out: the session is still there, it just cannot be asked about.
+      const wasSignedIn = cachedUser !== '' && cachedVaults.length > 0
+      set({ device, user: cachedUser, signedIn: wasSignedIn, vaults: mergeVaults(cachedVaults, folders) })
       if (!desktop) void requestPersistence()
 
       // An offline launch must never bounce you to a login you cannot reach:
@@ -315,13 +339,23 @@ export const useApp = create<AppState>()((set, get) => {
       }
       if (!identity) {
         // Sitting in a folder from disk, there is no session to miss.
-        set(openable ? { sync: syncStateFor('needs-login') } : { phase: 'login' })
+        set({
+          signedIn: false,
+          ...(openable ? { sync: syncStateFor('needs-login') } : { phase: 'login' }),
+        })
         return
       }
       set({ phase: 'ready' })
       await adoptIdentity(identity.user, identity.vaults)
       await get().syncNow()
       await openFirstNote()
+    },
+
+    showLogin(show) {
+      // Nothing to go back to: until a vault or a folder is open the login
+      // screen is the whole app, and dismissing it would leave a blank one.
+      if (!show && !get().currentVault) return
+      set({ phase: show ? 'login' : 'ready' })
     },
 
     async login(user, password) {
@@ -346,6 +380,7 @@ export const useApp = create<AppState>()((set, get) => {
       }
       set({
         phase: 'login',
+        signedIn: false,
         sync: 'idle',
         vaults: folders,
         currentVault: undefined,
@@ -362,6 +397,18 @@ export const useApp = create<AppState>()((set, get) => {
         set({ phase: 'ready' })
         await get().selectVault(folders[0].id)
       }
+    },
+
+    async changePassword(input) {
+      const { signedOut } = await api.changePassword(input)
+      // Worth a notice rather than silence: "sign out my other devices" is a
+      // thing you should be told actually happened.
+      notice(
+        'info',
+        signedOut > 0
+          ? `Password changed. ${signedOut} other ${signedOut === 1 ? 'device' : 'devices'} signed out.`
+          : 'Password changed.',
+      )
     },
 
     async selectVault(id) {
@@ -717,7 +764,7 @@ export const useApp = create<AppState>()((set, get) => {
           set({ sync: 'offline' })
         } else if (err instanceof ApiError && err.isAuth) {
           // Pending work is untouched; the user just has to sign in again.
-          set({ sync: 'needs-login' })
+          set({ sync: 'needs-login', signedIn: false })
         } else {
           set({ sync: 'error' })
           notice('error', err instanceof Error ? err.message : 'sync failed')

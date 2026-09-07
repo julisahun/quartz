@@ -6,7 +6,11 @@ import { foldersSupported } from '../vault/folders'
 export function LoginScreen() {
   const login = useApp((s) => s.login)
   const openFolder = useApp((s) => s.openFolder)
-  const [user, setUser] = useState('juli')
+  const showLogin = useApp((s) => s.showLogin)
+  // Asked for from inside the app rather than bounced to, which is what a
+  // folder from disk always does: there is somewhere to go back to.
+  const openVault = useApp((s) => s.vaults.find((v) => v.id === s.currentVault))
+  const [user, setUser] = useState(() => useApp.getState().user || 'juli')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -30,7 +34,7 @@ export function LoginScreen() {
   return (
     <div className="login">
       <form className="login-card" onSubmit={submit}>
-        <h1>quartz</h1>
+        <h1>Quartz</h1>
         <p className="muted">Your notes, on your own machine.</p>
         <label>
           User
@@ -55,6 +59,11 @@ export function LoginScreen() {
       {foldersSupported() && (
         <button className="ghost login-alt" onClick={() => void openFolder()}>
           Open a folder instead
+        </button>
+      )}
+      {openVault && (
+        <button className="ghost login-alt" onClick={() => showLogin(false)}>
+          Back to {openVault.name}
         </button>
       )}
     </div>

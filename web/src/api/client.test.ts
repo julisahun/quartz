@@ -51,3 +51,38 @@ describe('downloading a file', () => {
     await expect(new HttpApi().vault('juli').getFile('a.md')).rejects.toBeInstanceOf(IntegrityError)
   })
 })
+
+describe('changing a password', () => {
+  it('posts the three fields and reports how many sessions ended', async () => {
+    const seen: { url?: string; init?: RequestInit } = {}
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      seen.url = url
+      seen.init = init
+      return new Response(JSON.stringify({ signedOut: 2 }), { status: 200 })
+    })
+
+    const out = await new HttpApi().changePassword({
+      current: 'old-one',
+      next: 'a-longer-secret',
+      signOutOthers: true,
+    })
+
+    expect(out.signedOut).toBe(2)
+    expect(seen.url).toBe('/auth/password')
+    expect(seen.init?.method).toBe('POST')
+    expect(JSON.parse(String(seen.init?.body))).toEqual({
+      current: 'old-one',
+      next: 'a-longer-secret',
+      signOutOthers: true,
+    })
+  })
+
+  it('surfaces the server’s refusal as a coded ApiError', async () => {
+    vi.stubGlobal('fetch', async () =>
+      new Response(JSON.stringify({ code: 'invalid_credentials', error: 'nope' }), { status: 401 }),
+    )
+    await expect(
+      new HttpApi().changePassword({ current: 'wrong', next: 'a-longer-secret', signOutOthers: false }),
+    ).rejects.toMatchObject({ code: 'invalid_credentials', isAuth: true })
+  })
+})

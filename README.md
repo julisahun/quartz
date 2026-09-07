@@ -1,4 +1,4 @@
-# quartz
+# Quartz
 
 A self-hosted notes app over plain folders of markdown files. Obsidian keeps
 working on the same folders, which is the point: it is the fallback while the
@@ -16,7 +16,7 @@ CRDT merge, Dataview queries, themes, a native mobile app.
 laptop PWA ├─ same frontend ─┐
 Tauri app ─┘                 │  HTTPS (session cookie)
                              ▼
-              cloudflared @ Pi ──► 127.0.0.1:8086  quartz (Go, systemd)
+              cloudflared @ Pi ──► 127.0.0.1:8086  Quartz (Go, systemd)
                                           │
                                           ├─ /srv/quartz/vault   ← plain .md, a git repo
                                           ├─ fsnotify watcher    ← catches Obsidian's writes
@@ -56,6 +56,7 @@ deploy/           systemd unit, cloudflared snippet, Pi checklist
 | `POST /auth/login` | sets an HttpOnly session cookie, returns `{user, vaults}` |
 | `POST /auth/logout` | clears it |
 | `GET /auth/session` | who you are and what you may open |
+| `POST /auth/password` | changes your own password: `{current, next, signOutOthers}` → `{signedOut}` |
 | `GET /api/vaults` | `[{id, name, kind, owner, role}]` |
 | `POST /api/vaults` | promotes a folder: `{id, name, bytes}` → the new vault, owned by you |
 | `GET /api/v/{vault}/snapshot` | full manifest `{head, epoch, files:[…]}` |
@@ -124,6 +125,13 @@ quartz-admin user remove maria                     # keeps her notes; -purge del
 A private vault is addressed by its owner's name; shared vaults take the id you
 give them, from the same namespace. Run the CLI as the user the service runs as,
 so the directories it creates are owned correctly.
+
+A signed-in account can change **its own** password in the app — `password…` in
+the status bar, or the phone's `⋯` menu — which asks for the current one and
+offers to sign the account's other devices out. That is a change, not a
+recovery: it needs the password you already have. Someone who has *forgotten*
+theirs still needs `quartz-admin user passwd`, because there is no reset link
+and no address to send one to.
 
 Tests: `go test ./...` (add `-race` before pushing).
 
@@ -225,7 +233,7 @@ The desktop shell is in [`desktop/`](desktop/README.md).
 
 Any folder can be opened as a vault of its own: no account, no server, no
 sync, and listed only on the device that opened it. It is the one way to use
-quartz with the Pi switched off, and the login screen offers it, so a machine
+Quartz with the Pi switched off, and the login screen offers it, so a machine
 with no account is not a machine with no notes.
 
 The desktop shell opens one through a native picker. Chromium browsers do it

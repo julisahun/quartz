@@ -1237,6 +1237,20 @@ html.resizing * {
   min-height: var(--tap);
 }
 
+.field-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.field-check input {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+}
+
 .sheet-actions {
   display: flex;
   gap: 0.5rem;

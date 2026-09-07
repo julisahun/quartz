@@ -11,6 +11,7 @@ import {
   promptForgetFolder,
   promptNewNote,
   promptPromote,
+  promptChangePassword,
   promptSignOut,
 } from './actions'
 import { AppBar } from './AppBar'
@@ -41,6 +42,8 @@ export function Sidebar({ onNavigate, inert }: Props) {
   const syncNow = useApp((s) => s.syncNow)
   const selectVault = useApp((s) => s.selectVault)
   const openFolder = useApp((s) => s.openFolder)
+  const signedIn = useApp((s) => s.signedIn)
+  const showLogin = useApp((s) => s.showLogin)
   const user = useApp((s) => s.user)
   const isPhone = useIsPhone()
 
@@ -116,18 +119,24 @@ export function Sidebar({ onNavigate, inert }: Props) {
       ...(open?.kind === 'local'
         ? [
             // Publishing needs an account to publish to.
-            ...(vaults.some((v) => v.kind !== 'local')
+            ...(signedIn
               ? [{ label: 'Sync this vault…', hint: 'Copies it to the server', run: () => void promptPromote(open.id) }]
               : []),
             { label: 'Forget this folder', hint: 'Leaves the notes on disk', run: () => void promptForgetFolder(open.id) },
           ]
         : [{ label: 'Sync now', run: () => void syncNow() }]),
-      { label: 'Sign out', run: () => void promptSignOut() },
+      // An account is what a password belongs to; a folder on disk has none.
+      ...(signedIn
+        ? [
+            { label: 'Change password…', run: () => void promptChangePassword() },
+            { label: 'Sign out', run: () => void promptSignOut() },
+          ]
+        : [{ label: 'Sign in…', hint: 'Needed to sync a folder', run: () => showLogin(true) }]),
     ])
   }
 
   function vaultName(): string {
-    return vaults.find((v) => v.id === currentVault)?.name ?? 'quartz'
+    return vaults.find((v) => v.id === currentVault)?.name ?? 'Quartz'
   }
 
   const rowProps = {

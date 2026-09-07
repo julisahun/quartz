@@ -4,6 +4,7 @@ import {
   promptForgetFolder,
   promptPromote,
   promptRename,
+  promptChangePassword,
   promptSignOut,
 } from './actions'
 import { useIsPhone } from './media'
@@ -34,8 +35,8 @@ export function StatusBar({ livePreview, onToggleLivePreview }: Props) {
   const currentPath = useApp((s) => s.currentPath)
   const currentVault = useApp((s) => s.currentVault)
   const isFolder = useApp((s) => s.vaults.some((v) => v.id === s.currentVault && v.kind === 'local'))
-  // An account is what "sign out" needs; folders on disk are not one.
-  const signedIn = useApp((s) => s.vaults.some((v) => v.kind !== 'local'))
+  const signedIn = useApp((s) => s.signedIn)
+  const showLogin = useApp((s) => s.showLogin)
   const syncNow = useApp((s) => s.syncNow)
   const isPhone = useIsPhone()
 
@@ -79,9 +80,21 @@ export function StatusBar({ livePreview, onToggleLivePreview }: Props) {
               </button>
             </>
           )}
-          {signedIn && (
-            <button className="ghost" onClick={() => void promptSignOut()}>
-              sign out
+          {signedIn ? (
+            <>
+              <button className="ghost" onClick={() => void promptChangePassword()}>
+                password…
+              </button>
+              <button className="ghost" onClick={() => void promptSignOut()}>
+                sign out
+              </button>
+            </>
+          ) : (
+            // The way back to an account. Nothing else here leads to the login
+            // screen once a folder from disk is open, and without an account
+            // there is nothing to publish a folder to.
+            <button className="ghost" onClick={() => showLogin(true)}>
+              sign in
             </button>
           )}
         </>

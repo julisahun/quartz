@@ -219,6 +219,36 @@ broke a handout silently would be worse than the strip being noisy.
 Not done: no text extraction, so search does not see inside a PDF; no page
 number in a link (`[[handout.pdf#page=3]]`); and no thumbnail in the tree.
 
+## Changing a password (2026-09-06)
+
+"Let people reset their password" is two features wearing one name. **Changing**
+one needs the session you already hold; **recovering** one needs a trust anchor
+from outside the app entirely, because the person asking cannot prove anything
+inside it. Only the first is built.
+
+| Question | Decision | Notes |
+|---|---|---|
+| Change, or recover? | **Change only** | `POST /auth/password` needs a session *and* the current password. A forgotten password is still `quartz-admin user passwd` over SSH — recovery keeps requiring shell access, exactly as account creation does. |
+| Email a reset link? | **No** | There is no address to send to: `users` is `(name, password_hash, created)`. Adding one, plus SMTP on the Pi, is precisely the machinery "no email flows" was decided against above. |
+| Is this a new public surface? | **No** | It is the promotion argument applied to something smaller: an authenticated account acting on what it owns. Nothing here answers to a caller without a session. |
+| Does it end the other sessions? | **Yes, and it is a checkbox** | Defaulted on. A session outlives the password it was opened with, so a change that left every device signed in would mean less than it appears to. The caller's own session is kept — signing yourself out of the device in your hand is never what was asked. |
+| Its own rate limit? | **No, login's** | Checking the current password is the same oracle logging in is, so it draws on the same budget rather than being handed a fresh one. The budget is reset the moment the current password verifies, so a typo in the *new* field costs nothing. |
+
+- **The CLI still says "existing sessions stay valid", on purpose.** An admin
+  correcting a typo is not a person acting on "that password may have leaked",
+  and the two should not do the same thing. The difference is the point.
+- **Eight characters, because that is what `quartz-admin` and `quartz-passwd`
+  already ask for.** A password set in the app and one set over SSH are held to
+  one rule, and the server holds it — the sheet checks too, only to save a
+  round trip.
+- **Revoking is safe because a 401 has never meant "drop the queue".** A device
+  signed out mid-edit keeps its pending work and asks for a password; that
+  property was built for expiring sessions and this reuses it unchanged.
+- **The sheet submits, rather than collecting and closing.** Every other dialog
+  hands back a value, but this one can be refused by the server — a wrong
+  current password, one too short — and a fresh sheet would throw away three
+  filled fields to say so.
+
 ## Decisions taken while building
 
 - **Pure-Go SQLite** (`modernc.org/sqlite`) rather than `mattn/go-sqlite3`, so

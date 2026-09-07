@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# One-time privileged setup for quartz on the Pi. Run as root, once:
+# One-time privileged setup for Quartz on the Pi. Run as root, once:
 #
 #   ssh -t pi 'sudo bash /home/sigint/quartz-stage/bootstrap-pi.sh'
 #
@@ -132,11 +132,11 @@ systemctl restart cloudflared
 say "smoke test"
 for i in $(seq 1 15); do
   if curl -sf "http://127.0.0.1:$PORT/healthz" >/dev/null; then
-    echo "quartz is up on 127.0.0.1:$PORT"
+    echo "Quartz is up on 127.0.0.1:$PORT"
     exit 0
   fi
   sleep 1
 done
-echo "quartz did not answer; recent logs:" >&2
+echo "Quartz did not answer; recent logs:" >&2
 journalctl -u quartz -n 40 --no-pager >&2
 exit 1

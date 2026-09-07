@@ -111,6 +111,16 @@ export interface Api {
   logout(): Promise<void>
   /** The signed-in identity, or undefined when the session is gone. */
   session(): Promise<Identity | undefined>
+  /**
+   * Changes the signed-in account's own password. Not a recovery flow: it
+   * needs the current password, so a forgotten one is still quartz-admin's
+   * problem. Resolves with how many other sessions were ended.
+   */
+  changePassword(input: {
+    current: string
+    next: string
+    signOutOthers: boolean
+  }): Promise<{ signedOut: number }>
   vaults(): Promise<VaultSummary[]>
   /** Promotes a folder: the account gets a vault of its own to fill. */
   createVault(input: { id: string; name: string; bytes: number }): Promise<VaultSummary>
@@ -196,6 +206,20 @@ export class HttpApi implements Api {
       if (err instanceof ApiError && err.isAuth) return undefined
       throw err
     }
+  }
+
+  async changePassword(input: {
+    current: string
+    next: string
+    signOutOthers: boolean
+  }): Promise<{ signedOut: number }> {
+    const resp = await this.request('/auth/password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    const body = await resp.json()
+    return { signedOut: body.signedOut ?? 0 }
   }
 
   async vaults(): Promise<VaultSummary[]> {

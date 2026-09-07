@@ -97,6 +97,18 @@ func (h *harness) signIn(name, password string) *signedIn {
 	return user
 }
 
+// tryLogin is signIn for the cases that expect to be turned away.
+func (h *harness) tryLogin(name, password string) int {
+	h.t.Helper()
+	body, _ := json.Marshal(map[string]string{"user": name, "password": password, "device": "test"})
+	resp, err := http.Post(h.srv.URL+"/auth/login", "application/json", bytes.NewReader(body))
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode
+}
+
 func (u *signedIn) do(method, path string, body []byte, headers map[string]string) *http.Response {
 	u.h.t.Helper()
 	var r io.Reader

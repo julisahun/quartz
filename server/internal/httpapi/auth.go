@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -104,6 +105,77 @@ func (a *API) handleSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"user": user, "vaults": vaults})
+}
+
+// MinPasswordLength is what quartz-admin and quartz-passwd already ask for, so
+// a password set in the app and one set over SSH are held to the same rule.
+const MinPasswordLength = 8
+
+type passwordRequest struct {
+	Current string `json:"current"`
+	Next    string `json:"next"`
+	// Whether to end the account's other sessions. The client offers it and
+	// defaults it on, since a password being changed usually means it is
+	// suspected, and a session outlives the password it was opened with.
+	SignOutOthers bool `json:"signOutOthers"`
+}
+
+// handleChangePassword changes the signed-in account's own password. It is not
+// a recovery flow: it needs a session and the current password, so it adds no
+// public surface — the reasoning is the one in DECISIONS.md for creating a
+// vault, applied to something smaller.
+func (a *API) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	var req passwordRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "malformed body")
+		return
+	}
+	// Checking the current password is the same oracle login is, so it draws on
+	// login's budget rather than being given a fresh one to spend.
+	key := clientIP(r)
+	if !a.limiter.Allow(key) {
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "too many attempts, try again later")
+		return
+	}
+
+	user := userFrom(r)
+	ok, err := a.accounts.Verify(user, req.Current)
+	if err != nil {
+		a.log.Error("could not verify a password", "err", err)
+		writeError(w, http.StatusInternalServerError, "server_error", "authentication is misconfigured")
+		return
+	}
+	if !ok {
+		a.log.Warn("failed password change", "user", user, "ip", key)
+		writeError(w, http.StatusUnauthorized, "invalid_credentials", "that is not your current password")
+		return
+	}
+	// Knowing the current password is proof enough of good faith; a typo in the
+	// new one should not spend what is left of the budget.
+	a.limiter.Reset(key)
+
+	if len(req.Next) < MinPasswordLength {
+		writeError(w, http.StatusBadRequest, "password_too_short",
+			fmt.Sprintf("use at least %d characters", MinPasswordLength))
+		return
+	}
+	if err := a.accounts.SetPassword(user, req.Next); err != nil {
+		a.log.Error("could not change a password", "err", err, "user", user)
+		writeError(w, http.StatusInternalServerError, "server_error", "could not change the password")
+		return
+	}
+
+	var signedOut int64
+	if req.SignOutOthers {
+		// The password has already changed. Failing the request now would tell
+		// the caller nothing happened, which is the one answer that is false.
+		signedOut, err = a.accounts.DeleteSessionsFor(user, auth.HashToken(sessionToken(r)))
+		if err != nil {
+			a.log.Error("could not sign the other devices out", "err", err, "user", user)
+		}
+	}
+	a.log.Info("password changed", "user", user, "signedOut", signedOut)
+	writeJSON(w, http.StatusOK, map[string]any{"signedOut": signedOut})
 }
 
 func (a *API) sessionCookie(value string, maxAge int) *http.Cookie {

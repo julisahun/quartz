@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { create } from 'zustand'
 import { Close } from './icons'
 
@@ -43,7 +43,20 @@ interface MenuRequest {
   resolve: (chosen: MenuItem | null) => void
 }
 
-type Request = TextRequest | ConfirmRequest | MenuRequest
+interface PasswordRequest {
+  kind: 'password'
+  title: string
+  /** Resolves with a message to show in the sheet, or null when it worked. */
+  submit: (input: { current: string; next: string; signOutOthers: boolean }) => Promise<string | null>
+  resolve: (changed: boolean) => void
+}
+
+type Request = TextRequest | ConfirmRequest | MenuRequest | PasswordRequest
+
+/** The kinds whose cancel value is `false` rather than `null`. */
+function dismissValue(request: Request): false | null {
+  return request.kind === 'confirm' || request.kind === 'password' ? false : null
+}
 
 interface DialogState {
   request: Request | undefined
@@ -68,7 +81,7 @@ const useDialogs = create<DialogState>()((set, get) => ({
 }))
 
 function cancel(request: Request) {
-  ;(request.resolve as (value: unknown) => void)(request.kind === 'confirm' ? false : null)
+  ;(request.resolve as (value: unknown) => void)(dismissValue(request))
 }
 
 /** Asks for a line of text. Resolves to null when dismissed. */
@@ -109,6 +122,20 @@ export function askConfirm(options: {
   })
 }
 
+/**
+ * Asks for a password change. Unlike the others this sheet does the work
+ * itself: the server can refuse — a wrong current password, one too short —
+ * and reopening a fresh sheet would throw away everything already typed.
+ */
+export function askPassword(options: {
+  title: string
+  submit: PasswordRequest['submit']
+}): Promise<boolean> {
+  return new Promise((resolve) => {
+    useDialogs.getState().show({ kind: 'password', title: options.title, submit: options.submit, resolve })
+  })
+}
+
 /** The overflow menu behind a `⋯` button. */
 export function openMenu(title: string, items: MenuItem[]): Promise<MenuItem | null> {
   return new Promise((resolve) => {
@@ -133,7 +160,7 @@ export function Dialogs() {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault()
-        settle(request, request.kind === 'confirm' ? false : null)
+        settle(request, dismissValue(request))
       }
     }
     document.addEventListener('keydown', onKey)
@@ -145,7 +172,7 @@ export function Dialogs() {
   }, [request, settle])
 
   if (!request) return null
-  const dismiss = () => settle(request, request.kind === 'confirm' ? false : null)
+  const dismiss = () => settle(request, dismissValue(request))
 
   return (
     <div className="sheet-layer">
@@ -168,6 +195,7 @@ export function Dialogs() {
         {request.kind === 'text' && <TextBody request={request} onSettle={settle} />}
         {request.kind === 'confirm' && <ConfirmBody request={request} onSettle={settle} />}
         {request.kind === 'menu' && <MenuBody request={request} onSettle={settle} />}
+        {request.kind === 'password' && <PasswordBody request={request} onSettle={settle} />}
       </div>
     </div>
   )
@@ -247,5 +275,81 @@ function MenuBody({ request, onSettle }: { request: MenuRequest; onSettle: Settl
         </button>
       ))}
     </div>
+  )
+}
+
+function PasswordBody({ request, onSettle }: { request: PasswordRequest; onSettle: Settle }) {
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [again, setAgain] = useState('')
+  const [signOutOthers, setSignOutOthers] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (busy) return
+    // The two client-side rules exist to save a round trip, not to be the
+    // check: the server holds the same minimum and is the one that counts.
+    if (next.length < 8) return setError('Use at least 8 characters.')
+    if (next !== again) return setError('Those two do not match.')
+    setBusy(true)
+    setError(null)
+    const failure = await request.submit({ current, next, signOutOthers })
+    setBusy(false)
+    if (failure === null) onSettle(request, true)
+    else setError(failure)
+  }
+
+  return (
+    <form className="sheet-body" onSubmit={submit}>
+      <label className="field">
+        <span>Current password</span>
+        <input
+          type="password"
+          value={current}
+          onChange={(event) => setCurrent(event.target.value)}
+          autoComplete="current-password"
+          enterKeyHint="next"
+        />
+      </label>
+      <label className="field">
+        <span>New password</span>
+        <input
+          type="password"
+          value={next}
+          onChange={(event) => setNext(event.target.value)}
+          autoComplete="new-password"
+          enterKeyHint="next"
+        />
+      </label>
+      <label className="field">
+        <span>New password again</span>
+        <input
+          type="password"
+          value={again}
+          onChange={(event) => setAgain(event.target.value)}
+          autoComplete="new-password"
+          enterKeyHint="done"
+        />
+      </label>
+      <label className="field-check">
+        <input
+          type="checkbox"
+          checked={signOutOthers}
+          onChange={(event) => setSignOutOthers(event.target.checked)}
+        />
+        <span>Sign out my other devices</span>
+      </label>
+      {error && <p className="error">{error}</p>}
+      <div className="sheet-actions">
+        <button type="button" className="button" onClick={() => onSettle(request, false)}>
+          Cancel
+        </button>
+        <button type="submit" className="button primary" disabled={busy || current === '' || next === ''}>
+          {busy ? 'Changing…' : 'Change password'}
+        </button>
+      </div>
+    </form>
   )
 }

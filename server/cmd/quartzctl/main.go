@@ -1,4 +1,4 @@
-// Command quartzctl syncs a local folder against a quartz server.
+// Command quartzctl syncs a local folder against a Quartz server.
 //
 // It is the milestone-1 client: enough to prove the sync algorithm end to end
 // with no UI written, and useful afterwards as a headless mirror.
@@ -51,7 +51,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, `quartzctl — sync a folder with a quartz server
+	fmt.Fprintln(os.Stderr, `quartzctl — sync a folder with a Quartz server
 
   login   -server URL -user NAME [-vault ID] [-device NAME] [-dir DIR]
   sync    [-dir DIR]

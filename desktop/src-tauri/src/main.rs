@@ -1,4 +1,4 @@
-// quartz desktop shell.
+// Quartz desktop shell.
 //
 // The window runs the same web app as the browser; the difference is what sits
 // behind the storage seam. Here each vault is a real folder — a valid Obsidian

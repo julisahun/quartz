@@ -18,8 +18,8 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
       },
       manifest: {
-        name: 'quartz',
-        short_name: 'quartz',
+        name: 'Quartz',
+        short_name: 'Quartz',
         description: 'Notes, offline first',
         theme_color: '#1c1b19',
         background_color: '#1c1b19',

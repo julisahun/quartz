@@ -170,7 +170,7 @@ impl VaultState {
     }
 
     /// Forgets a local vault. The folder and every note in it stay exactly
-    /// where they are — only quartz's bookkeeping goes.
+    /// where they are — only Quartz's bookkeeping goes.
     pub fn forget_local(&self, id: &str) -> Result<(), String> {
         let mut settings = self.settings.lock().map_err(|_| "settings lock")?;
         if settings.local.iter().any(|v| v.id == id && v.synced) {

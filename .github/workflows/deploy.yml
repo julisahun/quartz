@@ -1,4 +1,4 @@
-name: Deploy quartz to the Pi
+name: Deploy Quartz to the Pi
 
 on:
   workflow_dispatch:
@@ -107,7 +107,7 @@ jobs:
               # The API answering is not enough on its own: a deploy that
               # shipped a broken web root would still pass that check.
               if curl -sf http://127.0.0.1:8086/ | grep -q 'id="root"'; then
-                echo "quartz is up and serving the app"
+                echo "Quartz is up and serving the app"
                 exit 0
               fi
               echo "the API is up but the app shell is missing" >&2
@@ -115,7 +115,7 @@ jobs:
             fi
             sleep 1
           done
-          echo "quartz did not come up" >&2
+          echo "Quartz did not come up" >&2
           sudo journalctl -u quartz -n 40 --no-pager >&2
           exit 1
           REMOTE

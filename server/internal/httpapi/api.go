@@ -81,6 +81,7 @@ func (a *API) Router() http.Handler {
 		r.Post("/login", a.handleLogin)
 		r.Post("/logout", a.handleLogout)
 		r.With(a.requireSession).Get("/session", a.handleSession)
+		r.With(a.requireSession).Post("/password", a.handleChangePassword)
 	})
 
 	r.Route("/api", func(r chi.Router) {

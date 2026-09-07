@@ -1,4 +1,4 @@
-# quartz desktop
+# Quartz desktop
 
 The same web app in a Tauri window, with one difference that matters: the
 storage seam is backed by **real folders** instead of IndexedDB. Each one is a
@@ -40,6 +40,10 @@ instead**, and signing out leaves it open.
 - No safety net either. A synced vault is a git repo the server commits to; a
   folder opened from disk is worth exactly what your own backups make of it.
 - **forget folder** takes it off the list and deletes nothing.
+- **sign in** is in the status bar, and in the `⋯` menu on a phone. A folder
+  keeps the app open with no account, so nothing ever bounces you to the login
+  screen — and `sync…` needs an account to publish to, so the way in has to
+  stay reachable from inside.
 - The id is derived from the path, so opening the same folder twice reopens it
   instead of listing it again.
 - A folder under the vaults base is refused: it is already a synced vault, and

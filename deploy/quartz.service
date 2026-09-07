@@ -1,5 +1,5 @@
 [Unit]
-Description=quartz notes server
+Description=Quartz notes server
 Documentation=https://github.com/julisahun/quartz
 After=network-online.target
 Wants=network-online.target
