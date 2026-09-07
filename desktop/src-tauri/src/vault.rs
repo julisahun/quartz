@@ -42,6 +42,22 @@ pub struct LocalVault {
     pub synced: bool,
 }
 
+/// Whether this machine keeps a vault's notes as a folder, or only inside the
+/// app — and whether it has been asked yet.
+///
+/// A vault kept in the app has no folder of its own, so this cannot be
+/// recorded in one: it lives beside the list of folders instead.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum VaultMode {
+    /// Cloned: a real directory of markdown files, which Obsidian can open.
+    Folder,
+    /// Kept in the app's own storage. Nothing of it lands in the filesystem.
+    App,
+    /// Never asked. The client asks before opening the vault the first time.
+    Unset,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Settings {
     /// Vaults live side by side under this directory, one folder each, named
@@ -51,6 +67,12 @@ pub struct Settings {
     /// so a settings file written before local vaults existed still loads.
     #[serde(default)]
     pub local: Vec<LocalVault>,
+    /// Vaults this machine was told to keep inside the app instead of cloning.
+    /// Being in neither list is a third answer, not the same as this one: it
+    /// means nobody has been asked yet. Defaulted so a settings file written
+    /// before the choice existed still loads.
+    #[serde(default)]
+    pub app_only: Vec<String>,
 }
 
 impl Settings {
@@ -66,6 +88,7 @@ impl Settings {
         let settings = Settings {
             vaults: home.join("Documents").join("quartz"),
             local: Vec::new(),
+            app_only: Vec::new(),
         };
         settings.save(config_dir)?;
         Ok(settings)
@@ -100,10 +123,83 @@ impl VaultState {
             }
             return Ok(path);
         }
-        let root = settings.vaults.join(vault);
-        drop(settings);
-        fs::create_dir_all(&root).map_err(|e| e.to_string())?;
-        Ok(root)
+        // Not a folder on this machine. Either the vault is kept inside the
+        // app — in which case nothing here should be asking the filesystem for
+        // it — or it has never been cloned. Inventing a directory under the
+        // base is what used to clone every synced vault the instant it was
+        // opened, whether or not anybody wanted files.
+        Err(format!("{vault} is not kept as a folder on this machine"))
+    }
+
+    /// How this machine keeps a vault, and whether it has been asked.
+    pub fn vault_mode(&self, vault: &str) -> Result<VaultMode, String> {
+        if !valid_vault_id(vault) {
+            return Err(format!("invalid vault id: {vault}"));
+        }
+        let settings = self.settings.lock().map_err(|_| "settings lock")?;
+        if settings.local.iter().any(|v| v.id == vault) {
+            return Ok(VaultMode::Folder);
+        }
+        if settings.app_only.iter().any(|id| id == vault) {
+            return Ok(VaultMode::App);
+        }
+        Ok(VaultMode::Unset)
+    }
+
+    /// Records that a vault stays inside the app on this machine.
+    pub fn keep_in_app(&self, vault: &str) -> Result<(), String> {
+        if !valid_vault_id(vault) {
+            return Err(format!("invalid vault id: {vault}"));
+        }
+        let mut settings = self.settings.lock().map_err(|_| "settings lock")?;
+        if settings.local.iter().any(|v| v.id == vault) {
+            // There is no un-cloning. The notes are already files somewhere,
+            // and taking that back would mean either deleting them or leaving
+            // two stores over one folder.
+            return Err(format!("{vault} is already kept as a folder here"));
+        }
+        if !settings.app_only.iter().any(|id| id == vault) {
+            settings.app_only.push(vault.to_string());
+            settings.save(&self.config_dir)?;
+        }
+        Ok(())
+    }
+
+    /// Clones a synced vault onto this machine: from here on its bytes live in
+    /// `at`, or in a directory named after it under the base.
+    ///
+    /// The folder may already hold a copy of the notes — the same Obsidian
+    /// vault on a second machine is the case this is for — because the sync
+    /// engine adopts what matches and only conflicts what differs.
+    pub fn clone_vault(&self, vault: &str, at: Option<PathBuf>) -> Result<LocalVault, String> {
+        if !valid_vault_id(vault) {
+            return Err(format!("invalid vault id: {vault}"));
+        }
+        let mut settings = self.settings.lock().map_err(|_| "settings lock")?;
+        if settings.local.iter().any(|v| v.id == vault) {
+            return Err(format!("{vault} is already a folder here"));
+        }
+        let target = at.unwrap_or_else(|| settings.vaults.join(vault));
+        // Checked before anything is created, so a refusal leaves no directory
+        // lying around.
+        if let Ok(existing) = fs::canonicalize(&target) {
+            if let Some(other) = settings.local.iter().find(|v| v.path == existing) {
+                return Err(format!("that folder is already {}", other.id));
+            }
+        }
+        fs::create_dir_all(&target).map_err(|e| e.to_string())?;
+        let path = fs::canonicalize(&target).map_err(|e| e.to_string())?;
+        // Asked and answered the other way now.
+        settings.app_only.retain(|id| id != vault);
+        let cloned = LocalVault {
+            id: vault.to_string(),
+            name: vault.to_string(),
+            path,
+            synced: true,
+        };
+        settings.local.push(cloned.clone());
+        settings.save(&self.config_dir)?;
+        Ok(cloned)
     }
 
     pub fn local_vaults(&self) -> Result<Vec<LocalVault>, String> {
@@ -454,6 +550,85 @@ mod tests {
     }
 
     #[test]
+    fn a_vault_is_unasked_until_it_is_answered() {
+        let dirs = scratch("mode");
+        let state = state_in(&dirs);
+
+        // Being in neither list is its own answer: nobody has been asked, so
+        // the client knows to ask rather than assuming either way.
+        assert_eq!(state.vault_mode("talasia").unwrap(), VaultMode::Unset);
+        state.keep_in_app("talasia").unwrap();
+        assert_eq!(state.vault_mode("talasia").unwrap(), VaultMode::App);
+        // Answering twice is not an error; it is the same answer.
+        state.keep_in_app("talasia").unwrap();
+        assert_eq!(state.vault_mode("talasia").unwrap(), VaultMode::App);
+        fs::remove_dir_all(&dirs).ok();
+    }
+
+    #[test]
+    fn an_app_only_vault_has_no_folder() {
+        let dirs = scratch("app-only");
+        let state = state_in(&dirs);
+        state.keep_in_app("talasia").unwrap();
+        // Nothing of it is in the filesystem, so asking where it is on disk is
+        // a mistake worth reporting rather than a directory worth inventing.
+        assert!(state.root("talasia").is_err());
+        assert!(!dirs.join("base").join("talasia").exists());
+        fs::remove_dir_all(&dirs).ok();
+    }
+
+    #[test]
+    fn cloning_gives_a_vault_a_folder_and_settles_the_question() {
+        let dirs = scratch("clone");
+        let state = state_in(&dirs);
+        state.keep_in_app("talasia").unwrap();
+
+        let cloned = state.clone_vault("talasia", None).unwrap();
+        assert!(cloned.synced);
+        assert_eq!(state.vault_mode("talasia").unwrap(), VaultMode::Folder);
+        assert_eq!(
+            fs::canonicalize(state.root("talasia").unwrap()).unwrap(),
+            fs::canonicalize(dirs.join("base").join("talasia")).unwrap()
+        );
+        // It is a folder now, so the record of it being app-only is gone
+        // rather than left to contradict the folder.
+        assert!(state.settings.lock().unwrap().app_only.is_empty());
+        fs::remove_dir_all(&dirs).ok();
+    }
+
+    #[test]
+    fn cloning_adopts_a_folder_that_already_holds_the_notes() {
+        let dirs = scratch("clone-onto");
+        let existing = dirs.join("Talasia");
+        fs::create_dir_all(&existing).unwrap();
+        fs::write(existing.join("a.md"), b"# a").unwrap();
+        let state = state_in(&dirs);
+
+        state.clone_vault("talasia", Some(existing.clone())).unwrap();
+        // The same Obsidian vault on a second machine: nothing is moved and
+        // nothing is cleared, because reconcile adopts what already matches.
+        assert!(existing.join("a.md").exists());
+        assert_eq!(
+            fs::canonicalize(state.root("talasia").unwrap()).unwrap(),
+            fs::canonicalize(&existing).unwrap()
+        );
+        fs::remove_dir_all(&dirs).ok();
+    }
+
+    #[test]
+    fn there_is_no_un_cloning() {
+        let dirs = scratch("no-unclone");
+        let state = state_in(&dirs);
+        state.clone_vault("talasia", None).unwrap();
+
+        // The notes are files now. Going back would mean deleting them, or
+        // leaving two stores over one folder.
+        assert!(state.keep_in_app("talasia").is_err());
+        assert!(state.clone_vault("talasia", None).is_err(), "cloned twice");
+        fs::remove_dir_all(&dirs).ok();
+    }
+
+    #[test]
     fn a_local_vault_resolves_to_the_folder_that_was_picked() {
         let dirs = scratch("resolves");
         let picked = dirs.join("Notes of mine");
@@ -480,7 +655,7 @@ mod tests {
     fn refuses_a_folder_that_is_already_a_synced_vault() {
         let dirs = scratch("refuses");
         let state = state_in(&dirs);
-        let inside = state.root("juli").unwrap(); // created under the base
+        let inside = state.clone_vault("juli", None).unwrap().path; // under the base
         assert!(state.add_local(&inside).is_err());
         assert!(state.add_local(&dirs.join("nope")).is_err(), "accepted a missing folder");
         fs::remove_dir_all(&dirs).ok();
@@ -520,13 +695,10 @@ mod tests {
             fs::canonicalize(&picked).unwrap()
         );
         assert!(picked.join("a.md").exists());
-        // The old id no longer names this folder. It still resolves, because
-        // any unknown id falls through to a fresh directory under the base —
-        // but to an empty one, not to the user's notes.
-        assert_ne!(
-            fs::canonicalize(state.root(&local.id).unwrap()).unwrap(),
-            fs::canonicalize(&picked).unwrap()
-        );
+        // The old id no longer names anything. It used to fall through to a
+        // fresh directory under the base, which is how a vault nobody asked to
+        // clone got one anyway.
+        assert!(state.root(&local.id).is_err());
 
         // No un-syncing: forgetting it would leave the vault homeless.
         assert!(state.forget_local("field-notes").is_err());
@@ -567,6 +739,7 @@ mod tests {
             settings: Mutex::new(Settings {
                 vaults: dir.join("base"),
                 local: Vec::new(),
+                app_only: Vec::new(),
             }),
         }
     }

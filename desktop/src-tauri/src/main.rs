@@ -12,7 +12,7 @@ use std::sync::Mutex;
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
-use vault::{LocalVault, Settings, VaultState};
+use vault::{LocalVault, Settings, VaultMode, VaultState};
 
 #[tauri::command]
 fn vaults_base(state: tauri::State<'_, VaultState>) -> Result<String, String> {
@@ -70,6 +70,43 @@ fn promote_local_vault(
 #[tauri::command]
 fn forget_local_vault(id: String, state: tauri::State<'_, VaultState>) -> Result<(), String> {
     state.forget_local(&id)
+}
+
+/// Whether this machine keeps a vault as a folder, only inside the app, or has
+/// not been asked yet. The web app asks before it opens a synced vault the
+/// first time, and picks the side of the storage seam from the answer.
+#[tauri::command]
+fn vault_mode(vault: String, state: tauri::State<'_, VaultState>) -> Result<VaultMode, String> {
+    state.vault_mode(&vault)
+}
+
+#[tauri::command]
+fn keep_vault_in_app(vault: String, state: tauri::State<'_, VaultState>) -> Result<(), String> {
+    state.keep_in_app(&vault)
+}
+
+/// Clones a synced vault into a folder on this machine. With `pick` the user
+/// chooses where — including a folder that already holds the notes, which is
+/// the second-machine case — and dismissing the picker changes nothing.
+///
+/// `(async)` for the same reason as `pick_local_vault`: a blocking picker on
+/// the main thread deadlocks against the event loop.
+#[tauri::command(async)]
+fn clone_vault(
+    vault: String,
+    pick: bool,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, VaultState>,
+) -> Result<Option<LocalVault>, String> {
+    let at = if pick {
+        let Some(picked) = app.dialog().file().blocking_pick_folder() else {
+            return Ok(None);
+        };
+        Some(picked.into_path().map_err(|e| e.to_string())?)
+    } else {
+        None
+    };
+    state.clone_vault(&vault, at).map(Some)
 }
 
 #[tauri::command]
@@ -143,6 +180,9 @@ fn main() {
             pick_local_vault,
             promote_local_vault,
             forget_local_vault,
+            vault_mode,
+            keep_vault_in_app,
+            clone_vault,
             vault_list,
             vault_read,
             vault_write,
