@@ -12,6 +12,7 @@ import { EditorToolbar } from './EditorToolbar'
 import { ChevronLeft, Ellipsis } from './icons'
 import { useIsPhone } from './media'
 import { PdfView } from './PdfView'
+import { Slot } from './Slot'
 
 interface Props {
   livePreview: boolean
@@ -152,6 +153,7 @@ export function NoteEditor({ livePreview, onToggleLivePreview, onBack }: Props) 
     return (
       <>
         {body}
+        <Slot name="note.panels" />
         <Backlinks />
       </>
     )
@@ -176,6 +178,7 @@ export function NoteEditor({ livePreview, onToggleLivePreview, onBack }: Props) 
         }
       />
       {body}
+      <Slot name="note.panels" />
       <Backlinks />
       <EditorToolbar view={toolbarView} />
     </>

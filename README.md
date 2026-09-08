@@ -7,8 +7,8 @@ editor is still being built.
 Three musts: markdown editing, offline editing, sync across devices. A vault is
 a folder of markdown files with a membership list; an account makes one by
 publishing a folder, and can share it with other accounts.
-Non-goals: graph view, plugins, canvas, publishing, real-time collaboration,
-CRDT merge, Dataview queries, themes, a native mobile app.
+Non-goals: graph view, canvas, publishing, real-time collaboration, CRDT
+merge, a Dataview query language, themes, a native mobile app.
 
 ## How it fits together
 
@@ -46,6 +46,7 @@ server/           Go server, admin CLI and the CLI sync client
   cmd/quartzctl       folder sync client (milestone 1's acceptance test)
   cmd/quartz-passwd   argon2id hash generator, for a hand-written .env
 web/              the PWA (milestones 2–4, 6)
+  src/plugins         what is bundled on top of it — the only plugin-aware code
 desktop/          Tauri shell (milestone 5)
 deploy/           systemd unit, cloudflared snippet, Pi checklist
 ```
@@ -203,7 +204,8 @@ between the list and the note is a handle — drag it, or hold it and use the
 arrow keys, and double-click it to put it back at 17rem. **⌘P**
 (Ctrl-P away from a Mac) is the switcher: fuzzy over the whole path, matching
 on the device and never waiting on the server, so `mbacero` finds
-`campaigns/marea-baja/objects/acero-del-manantial`. The search box above the
+`campaigns/marea-baja/objects/acero-del-manantial`. Typing `>` turns it into
+the command list instead. The search box above the
 list is the other half — it asks the server what is *inside* the notes — and a
 query starting with `#` is a tag, answered from the local index instead:
 clicking a tag anywhere in the editor puts it there.
@@ -231,6 +233,68 @@ shape it was written in, `#headings` and `|display text` included, and widens
 to a full path only when the new name would otherwise be ambiguous.
 
 The desktop shell is in [`desktop/`](desktop/README.md).
+
+## Plugins
+
+Plugins were a non-goal for a long time, and for a good reason: a plugin API is
+a promise not to refactor, and nothing here was finished enough to make one.
+What changed is the shape. These are **compiled in, not installed** — there is
+no loader, no sandbox and no registry, `web/src/plugins/index.ts` lists what
+ships, and turning one off is deleting a line.
+
+That is what keeps the cost near zero. Bundled code needs no CSP relaxation,
+works offline and on iOS like the rest of the app, and renders real React
+instead of through some declarative vocabulary invented to keep a Worker at
+arm's length. It is also why the API is a convention rather than a wall: a
+plugin can import any module in the tree, and the small surface only marks
+what is meant to keep working.
+
+**The app does not know plugins exist.** It gained three general mechanisms
+instead, each of which it wanted anyway:
+
+| | |
+|---|---|
+| `state/commands.ts` | the command registry — ⌘P behind `>`; the note actions register into it too |
+| `ui/Slot.tsx` | named places (`sidebar.sections`, `status.items`, `note.panels`) that render whatever is in them |
+| `readNote(path)` | one method on the store: a note's text |
+
+`src/plugins/host.ts` is the only file that knows what a plugin is. Delete
+`src/plugins/` and the two lines in `main.tsx` that start it, and nothing else
+in the tree has to change — which is the measure of whether this stayed
+honest, so there is a test that checks it.
+
+A plugin is an id, a name, and a `setup(q)` that registers things:
+
+```tsx
+export const wordCount: QuartzPlugin = {
+  id: 'word-count',
+  name: 'Word count',
+  setup(q) {
+    q.ui.statusItem({ id: 'count', render: () => <Count q={q} /> })
+  },
+}
+```
+
+`q` is the whole surface — `q.vault` to read and write notes, `q.commands` to
+add one to ⌘P, `q.ui` for the slots, the notice strip and the sheets. Everything
+a plugin registers is namespaced by its id and undone by the host's teardown,
+so two plugins may both call their command `today`. A plugin that throws on the
+way up does not stop the others, and one that throws while rendering costs its
+own slot and nothing else.
+
+Three ship:
+
+| | |
+|---|---|
+| **By property** | a sidebar section grouping notes by a frontmatter property, discovered from the notes that have one. Scans only while it is open |
+| **Daily note** | `Open today's note` / `Open yesterday's note`, writing `journal/YYYY-MM-DD.md` from a template |
+| **Word count** | how long the open note is, from the editor's buffer rather than the last save |
+
+The rule they are held to: **a plugin must not make notes worse in Obsidian.**
+Nothing here invents syntax or writes a sidecar file. The property panel is a
+query that lives in the sidebar rather than inside a note precisely so there is
+nothing to go stale in the other editor — which is what the vault being the
+store of record costs, and buys.
 
 ## Folders opened from disk
 

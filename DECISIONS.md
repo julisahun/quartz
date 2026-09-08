@@ -400,6 +400,52 @@ What fell out of it:
   as designed — a file gone from the folder *is* a delete — but worth knowing
   before a repair pass runs over a folder that was copied incompletely.
 
+## Plugins, after all (2026-09-08)
+
+Plugins were on the non-goal list from the start, next to the graph view. The
+reason still holds where it was aimed: a plugin API is a promise not to
+refactor, and `state/store.ts` is 900 lines that everything routes through.
+Publishing that as a contract for other people's code would make every future
+change to it a breaking change, and that tax — not the loader, not the
+sandbox — is what a plugin platform actually costs.
+
+So the question was never "an API of what shape". It was two others, and the
+answers make this a small feature rather than a large one:
+
+- **Who writes them?** Only me. So this is an in-tree extension registry, and
+  the API stays an internal interface that can be refactored at will.
+- **Where does the code come from?** The build. Not the server, and not the
+  vault — the vault was the tempting one, because it syncs to every device for
+  free and it is what Obsidian does, but vaults have membership lists now.
+  A plugin in a shared vault is a way for another member to run code on my
+  phone, and that is a strange hole to open in an app whose API answers 404
+  instead of 403 so as not to admit a vault exists.
+
+Bundled code needs no sandbox, so plugins render real React and there is no
+declarative UI vocabulary to invent and then maintain. On iOS the alternatives
+were a Worker with no DOM or a sandboxed iframe with a postMessage bridge, and
+the vocabulary either one needs is most of the work in a real plugin platform.
+
+What the app itself gained is deliberately not plugin-shaped: a command
+registry, named UI slots, and one `readNote` on the store. All three are
+things it wanted anyway — the note actions register as commands too — and the
+only file that knows the word "plugin" is `plugins/host.ts`. The test for
+whether that stayed true is that `src/plugins/` can be deleted, along with two
+lines of `main.tsx`, and nothing else has to change.
+
+Two things fell out of building it:
+
+- **A slot must render its entry as a component, not by calling `render()`.**
+  Inlining the call put the plugin's hooks into the *slot's* hook list, so a
+  slot gaining or losing an entry would have re-ordered the hooks of whatever
+  was still in it — and a throw would have happened in the error boundary's
+  own render, the one place a boundary cannot catch. The error-containment
+  test found it, which is a fair argument for writing that test first.
+- **The plugin takes `Quartz` as an argument**, so every one of them tests
+  against a fake vault of three notes with no store, no database and no server
+  anywhere near it. That was not the reason for passing it in, but it is the
+  best thing about having done so.
+
 ## Decisions taken while building
 
 - **Pure-Go SQLite** (`modernc.org/sqlite`) rather than `mattn/go-sqlite3`, so

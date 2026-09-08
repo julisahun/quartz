@@ -141,6 +141,8 @@ interface AppState {
   /** How many notes link to this one — what a rename is about to break. */
   linksTo(path: string): Promise<number>
   attach(file: File): Promise<string>
+  /** A note's text as this device holds it, unsaved edits excluded. */
+  readNote(path: string): Promise<string>
   blobUrl(path: string): Promise<string | undefined>
   syncNow(): Promise<void>
   search(query: string): Promise<SearchHit[]>
@@ -772,6 +774,12 @@ export const useApp = create<AppState>()((set, get) => {
       await refreshFiles()
       scheduleSync()
       return path
+    },
+
+    async readNote(path) {
+      const runtime = current()
+      if (!runtime) throw new Error('no vault is open')
+      return decodeText(await runtime.store.read(path))
     },
 
     async blobUrl(path) {

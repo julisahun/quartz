@@ -2,6 +2,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { addCommand } from '../state/commands'
 import { useApp } from '../state/store'
 import type { FileMeta } from '../vault/types'
 import { QuickOpen } from './QuickOpen'
@@ -43,11 +44,18 @@ function press(key: string) {
   act(() => field().dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })))
 }
 
+const undo: Array<() => void> = []
+
+function command(id: string, title: string, extra: { when?: () => boolean; run?: () => void } = {}) {
+  undo.push(addCommand({ id, title, run: extra.run ?? (() => {}), when: extra.when }))
+}
+
 afterEach(() => {
   act(() => root?.unmount())
   host?.remove()
   root = undefined
   host = undefined
+  for (const remove of undo.splice(0).reverse()) remove()
   vi.restoreAllMocks()
 })
 
@@ -91,5 +99,73 @@ describe('QuickOpen', () => {
     render()
     type('zzzz')
     expect(host!.textContent).toContain('No note matches')
+  })
+})
+
+/**
+ * `>` is the switch every editor with one of these uses. It costs nothing:
+ * no note is called `>anything`.
+ */
+describe('QuickOpen in command mode', () => {
+  it('lists the commands behind a bare >', () => {
+    command('a', 'Sync now')
+    command('b', 'New note…')
+    render()
+    type('>')
+    expect(rows()).toEqual(['Sync now', 'New note…'])
+  })
+
+  it('narrows commands by title', () => {
+    command('a', 'Sync now')
+    command('b', 'New note…')
+    render()
+    type('>sync')
+    expect(rows()).toEqual(['Sync now'])
+  })
+
+  it('leaves out a command that does not apply right now', () => {
+    command('a', 'Rename this note…', { when: () => false })
+    command('b', 'Sync now')
+    render()
+    type('>')
+    expect(rows()).toEqual(['Sync now'])
+  })
+
+  it('runs the highlighted command on enter, and closes', () => {
+    const run = vi.fn()
+    const onClose = vi.fn()
+    command('a', 'Sync now', { run })
+    render(onClose)
+
+    type('>sync')
+    press('Enter')
+    expect(run).toHaveBeenCalledOnce()
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('does not open a note while in command mode', () => {
+    const open = vi.fn()
+    act(() => useApp.setState({ open }))
+    command('a', 'Sync now')
+    render()
+
+    type('>')
+    press('Enter')
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('says when no command matches', () => {
+    command('a', 'Sync now')
+    render()
+    type('>zzzz')
+    expect(host!.textContent).toContain('No command matches')
+  })
+
+  it('goes back to notes when the > is deleted', () => {
+    command('a', 'Sync now')
+    render()
+    type('>')
+    type('')
+    expect(rows()).toEqual(['ossian', 'acero-del-manantial', 'Inbox'])
   })
 })

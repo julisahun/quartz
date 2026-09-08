@@ -1,3 +1,4 @@
+import { addCommand } from '../state/commands'
 import { noteTitle } from '../state/notes'
 import { useApp } from '../state/store'
 import { slugForVault } from '../state/vaults'
@@ -191,4 +192,49 @@ function passwordFailure(err: unknown): string {
     if (err.isAuth) return 'Your session expired. Sign in again, then retry.'
   }
   return 'The password could not be changed.'
+}
+
+/**
+ * The app's own commands.
+ *
+ * Registered rather than listed inside ⌘P, for the same reason the menus call
+ * these functions instead of re-implementing them: one definition of what
+ * "rename" is, wherever it is reached from. Called once, from `main.tsx`.
+ */
+export function registerNoteCommands(): () => void {
+  const withNote = () => useApp.getState().currentPath !== undefined
+  const signedIn = () => useApp.getState().signedIn
+
+  const added = [
+    addCommand({ id: 'note.new', title: 'New note…', run: () => void promptNewNote() }),
+    addCommand({
+      id: 'note.rename',
+      title: 'Rename this note…',
+      when: withNote,
+      run: () => void promptRename(useApp.getState().currentPath!),
+    }),
+    addCommand({
+      id: 'note.delete',
+      title: 'Delete this note',
+      when: withNote,
+      run: () => void promptDelete(useApp.getState().currentPath!),
+    }),
+    addCommand({ id: 'vault.sync', title: 'Sync now', run: () => useApp.getState().syncNow() }),
+    addCommand({
+      id: 'account.password',
+      title: 'Change password…',
+      when: signedIn,
+      run: () => void promptChangePassword(),
+    }),
+    addCommand({
+      id: 'account.signout',
+      title: 'Sign out',
+      when: signedIn,
+      run: () => void promptSignOut(),
+    }),
+  ]
+
+  return () => {
+    for (const remove of added) remove()
+  }
 }

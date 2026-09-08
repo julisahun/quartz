@@ -9,6 +9,7 @@ import {
   promptSignOut,
 } from './actions'
 import { useIsPhone } from './media'
+import { Slot } from './Slot'
 
 interface Props {
   livePreview: boolean
@@ -53,6 +54,7 @@ export function StatusBar({ livePreview, onToggleLivePreview }: Props) {
         {pending > 0 && <span className="pending">{pending} queued</span>}
       </button>
       {unsaved && <span className="muted">unsaved…</span>}
+      <Slot name="status.items" />
       <span className="spacer" />
       {!isPhone && (
         <>

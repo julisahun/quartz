@@ -21,6 +21,7 @@ import { Ellipsis, Plus, Refresh } from './icons'
 import { useIsPhone } from './media'
 import { NoteRow, NoteTree } from './NoteTree'
 import { SidebarResizer } from './SidebarResizer'
+import { Slot } from './Slot'
 import { VaultSwitcher } from './VaultSwitcher'
 
 interface Props {
@@ -260,6 +261,8 @@ export function Sidebar({ onNavigate, inert }: Props) {
           </button>
         )}
       </div>
+
+      <Slot name="sidebar.sections" />
 
       <div className="list-scroll" ref={setListFrame}>
         <div className="pull-indicator" aria-hidden="true">
