@@ -86,7 +86,7 @@ export function StatusBar({ livePreview, onToggleLivePreview, onOpenSettings }: 
                 </button>
               )}
               <button className="ghost" onClick={() => void promptForgetFolder(currentVault)}>
-                forget folder
+                forget vault
               </button>
             </>
           )}

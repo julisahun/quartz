@@ -112,14 +112,16 @@ export function Sidebar({ onNavigate, inert }: Props) {
       // A folder at the root has no row of its own to be reached from.
       { label: 'New folder…', run: () => void promptNewFolder() },
       // Not every build can open one: iOS and Firefox have no way to.
-      ...(foldersSupported() ? [{ label: 'Open folder…', run: () => void openFolder() }] : []),
+      ...(foldersSupported()
+        ? [{ label: 'Open vault…', hint: 'A folder on this machine', run: () => void openFolder() }]
+        : []),
       ...(open && isLocal(open)
         ? [
             // Publishing needs an account to publish to.
             ...(signedIn
               ? [{ label: 'Sync this vault…', hint: 'Copies it to the server', run: () => void promptPromote(open.id) }]
               : []),
-            { label: 'Forget this folder', hint: 'Leaves the notes on disk', run: () => void promptForgetFolder(open.id) },
+            { label: 'Forget this vault', hint: 'Leaves the notes on disk', run: () => void promptForgetFolder(open.id) },
           ]
         : [
             { label: 'Sync now', run: () => void syncNow() },

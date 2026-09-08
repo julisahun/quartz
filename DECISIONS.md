@@ -540,6 +540,48 @@ Renaming asks for a **name**, not a path. That is what keeps the operation
 honest as a rename: the folder cannot be moved elsewhere, or inside itself, by
 typing — which would need a different set of guards and is a different feature.
 
+## Files that arrived from somewhere else (2026-09-08)
+
+A vault kept as a folder has other writers: Obsidian, Finder, `git pull`, a
+download, a second device pushing to the server. The app was only ever looking
+at one of them. A synced folder did discover changes, but as a side effect —
+the push step lists the folder to work out what is pending, so a file dropped
+in got sent — while a vault loaded from this machine looked at its folder once,
+when it was opened, and never again. Notes added beside it were invisible until
+the vault was switched away from and back.
+
+| Question | Decision | Notes |
+|---|---|---|
+| When does it look again? | **The sync tick it already had, and the window regaining focus** | The tick ran for a loaded vault all along and did nothing with it, because there was no server to talk to; looking at the folder is what the tick is *for* there. Focus matters more than the interval: editing in Obsidian and switching over is the whole point of the folder being a folder, and a window that was never hidden fires no visibility change, so `visibilitychange` alone missed it. |
+| Discovered how? | **A fresh listing, and nothing else** | Not a watcher. Both stores already list the vault on every push and every save, so this adds a trigger rather than a mechanism — and a watcher would need one implementation per platform to answer the same question a listing answers. |
+| What happens to a file that appeared? | **Nothing special: it is a file with no base hash** | Which is exactly what a note created here looks like, so if the vault is synced the push step sends it without being told to. Discovery and sync are the same pass. |
+| And the note on screen? | **Replaced from disk — never over unsaved typing** | The buffer is checked against the file rather than assumed to be it. Unsaved typing wins because it is the one copy nobody else has. A note that is gone from the listing closes: an editor still offering to save it would put it back without saying so. |
+| How is that checked cheaply? | **The hash in the listing, against the hash of the buffer** | Hashing a few kilobytes of text beats reading the file every thirty seconds — which on the desktop is the note's bytes through an IPC round trip. On the ordinary tick, where nothing moved, this is a comparison and no read at all. |
+| A vault that cannot be read? | **The console, and the last good listing left on screen** | This runs on a timer, so a notice would be the same sentence every thirty seconds. Blanking the note list reads as "your notes are gone", which is worse than a list that is briefly out of date — and choosing the vault still says so properly, which is where a folder that has been moved or unplugged is actually noticed. |
+
+The reverse — a file that *left* — was already answered and is deliberately
+asymmetric. A file missing from a folder is a pending delete, because the
+folder is the vault; a file missing from the server's manifest is not evidence
+of anything, and is offered to the server again. Discovery changes neither.
+
+One thing had to move for this to be safe. A rename deletes the old path
+before the new one reaches the screen, and with links to rewrite it holds that
+window open for as long as the rewriting takes — from inside it the open note
+is simply gone from the listing, so a rescan landing there closed the editor,
+and the rename then reopened nothing, because it asked which note was open
+*after* moving it. Both renames now read the open path before anything moves,
+which is what `deleteFolder` already did. The old code was accidentally safe:
+its refresh only ran when something had been pulled, and a rename pulls
+nothing.
+
+**What this costs:** both stores read and hash every file to list a vault. The
+browser half remembers hashes by size and last-modified, so a rescan is a stat
+per file; `vault.rs` does not, so on the desktop it is the whole vault re-read
+and re-hashed. That was already the case every thirty seconds for a synced
+folder — the push step lists it — and now it is the case for a loaded one too.
+The fix if it is ever felt is the memo the browser already has, keyed on size
+and mtime, not a watcher.
+
 ## Decisions taken while building
 
 - **Pure-Go SQLite** (`modernc.org/sqlite`) rather than `mattn/go-sqlite3`, so

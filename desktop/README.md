@@ -53,14 +53,14 @@ vault the instant it was opened.
 The `+` beside the vault switcher opens any folder as a vault of its own — what
 Obsidian calls "open folder as vault". It belongs to no account, syncs with
 nothing, and is listed only on this machine, so it works with the Pi switched
-off and with no account at all: the login screen offers **Open a folder
+off and with no account at all: the login screen offers **Open a vault
 instead**, and signing out leaves it open.
 
 - Nothing is uploaded, and the server never learns the folder exists. The sync
   light says `local folder` rather than pretending to be up to date.
 - No safety net either. A synced vault is a git repo the server commits to; a
   folder opened from disk is worth exactly what your own backups make of it.
-- **forget folder** takes it off the list and deletes nothing.
+- **forget vault** takes it off the list and deletes nothing.
 - **sign in** is in the status bar, and in the `⋯` menu on a phone. A folder
   keeps the app open with no account, so nothing ever bounces you to the login
   screen — and `sync…` needs an account to publish to, so the way in has to
@@ -69,6 +69,10 @@ instead**, and signing out leaves it open.
   instead of listing it again.
 - A folder under the vaults base is refused: it is already a synced vault, and
   two stores writing one directory would fight.
+- Notes added to the folder by anything else — Finder, `git pull`, Obsidian —
+  are picked up on the sync tick and whenever the window regains focus. The
+  shell lists and hashes the whole folder to do it, which is what `vault_list`
+  already costs on every save.
 
 Chromium browsers can open a folder too, through the File System Access API,
 and the app treats both the same way. The shell's version is the better one: it

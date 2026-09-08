@@ -58,7 +58,7 @@ export function LoginScreen() {
       {/* A folder on disk needs no account, so this cannot sit behind one. */}
       {foldersSupported() && (
         <button className="ghost login-alt" onClick={() => void openFolder()}>
-          Open a folder instead
+          Open a vault instead
         </button>
       )}
       {openVault && (

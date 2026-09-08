@@ -71,8 +71,8 @@ export function VaultSwitcher() {
         <button
           className="icon-button"
           onClick={() => void openFolder()}
-          title="Open a folder as a vault"
-          aria-label="Open a folder as a vault"
+          title="Open a vault from this machine"
+          aria-label="Open a vault from this machine"
         >
           <FolderPlus />
         </button>

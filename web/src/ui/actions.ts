@@ -283,7 +283,7 @@ export async function promptForgetFolder(id: string): Promise<void> {
   const ok = await askConfirm({
     title: `Stop listing ${folder.name}?`,
     body: 'The folder and every note in it stay exactly where they are on disk. You can open it again whenever you like.',
-    confirmLabel: 'Forget folder',
+    confirmLabel: 'Forget vault',
   })
   if (ok) await useApp.getState().forgetFolder(id)
 }

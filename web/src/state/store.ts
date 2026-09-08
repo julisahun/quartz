@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { ApiError, HttpApi, OfflineError, type SearchHit, type VaultSummary } from '../api/client'
 import { SyncEngine, type SyncNotice } from '../sync/engine'
 import { createVaultStore } from '../vault'
+import { sha256Hex } from '../vault/hash'
 import {
   accessGranted,
   ensureAccess,
@@ -308,6 +309,63 @@ export const useApp = create<AppState>()((set, get) => {
     const pending = isLocalVault(id) ? 0 : (await runtime.store.pending()).length
     set({ files, pending })
     scheduleIndex()
+  }
+
+  /**
+   * Brings the open note up to date with what the store now holds.
+   *
+   * The app is one writer among several: a vault kept as a folder is open to
+   * Obsidian, to Finder, to git and to a download, and a synced one moves
+   * whenever another device pushes. So the buffer is checked against the file
+   * rather than assumed to be it.
+   *
+   * Unsaved typing always wins — it is the one copy nobody else has. The hash
+   * from the listing decides whether anything is worth reading, which keeps
+   * this to a comparison on the ordinary tick where nothing moved.
+   */
+  const reopenIfChanged = async () => {
+    const { currentPath, unsaved, files } = get()
+    const runtime = current()
+    if (!runtime || !currentPath || unsaved) return
+
+    const file = files.find((f) => f.path === currentPath)
+    if (!file) {
+      // Deleted under us, here or elsewhere. An editor still offering to save
+      // it would put it back without saying so.
+      set({ currentPath: undefined, content: '', unsaved: false, backlinks: [] })
+      return
+    }
+    // A PDF never reaches the buffer; whatever asks for its bytes reads them
+    // straight from the store.
+    if (!isNote(currentPath)) return
+    if (file.hash === (await sha256Hex(encodeText(get().content)))) return
+
+    const text = decodeText(await runtime.store.read(currentPath))
+    if (text !== get().content) set({ content: text })
+  }
+
+  /**
+   * Looks at the vault again and takes on whatever changed there.
+   *
+   * A vault loaded from this machine is a folder anybody can write to, so what
+   * the app shows has to come from a fresh listing rather than from the last
+   * thing the app itself did. A file that appeared is then a file with no base
+   * hash, which is exactly what a locally created one looks like — so if the
+   * vault is synced, the push step that follows sends it without being told.
+   *
+   * Failure is left to the console on purpose. This runs on a timer, and a
+   * folder that has been unplugged would otherwise fill the notice strip with
+   * the same sentence every thirty seconds; keeping the last good listing on
+   * screen also beats blanking the note list, which reads as "your notes are
+   * gone". Choosing the vault says so properly.
+   */
+  const rescan = async () => {
+    try {
+      await refreshFiles()
+      await reopenIfChanged()
+    } catch (err) {
+      console.warn('re-reading the vault failed', err)
+    }
   }
 
   /**
@@ -789,6 +847,11 @@ export const useApp = create<AppState>()((set, get) => {
       if (get().unsaved) await get().save()
 
       const before = get().files
+      // Read before anything moves, the way deleteFolder does: between the
+      // delete and the refresh below the old path is gone from the listing,
+      // and a rescan landing in that window closes the editor. Asking
+      // afterwards would then reopen nothing.
+      const open = get().currentPath
       const target = uniquePath(to, before)
       // Worked out before anything moves: afterwards the old name resolves to
       // nothing and there is no way to tell which links meant this note.
@@ -822,7 +885,6 @@ export const useApp = create<AppState>()((set, get) => {
       }
 
       await refreshFiles()
-      const open = get().currentPath
       if (open === from) await get().open(target)
       else if (open && linking.includes(open)) await get().open(open)
 
@@ -844,6 +906,8 @@ export const useApp = create<AppState>()((set, get) => {
       if (get().unsaved) await get().save()
 
       const before = get().files
+      // Before the move, for the same reason renameNote reads it early.
+      const open = get().currentPath
       const moving = filesIn(before, folder)
       if (moving.length === 0) throw new Error(`${folderName(folder)} is empty`)
       // A case-only rename is the folder itself, so it is not a collision.
@@ -896,7 +960,6 @@ export const useApp = create<AppState>()((set, get) => {
       }
 
       await refreshFiles()
-      const open = get().currentPath
       if (open) {
         const now = moved.get(open)
         if (now) await get().open(now)
@@ -971,8 +1034,10 @@ export const useApp = create<AppState>()((set, get) => {
         syncAgain = true
         return
       }
-      // A folder from disk has nothing to sync with; the account's vaults are
-      // still worth keeping fresh behind it.
+      // A vault loaded from this machine has no server to talk to; the
+      // account's vaults are still worth keeping fresh behind it. What the
+      // tick is for either way is the same thing: noticing what changed
+      // without being asked.
       const open = isLocalVault(currentVault) ? undefined : runtimeFor(currentVault).engine
       syncing = true
       set({ sync: open ? 'syncing' : 'local' })
@@ -980,23 +1045,17 @@ export const useApp = create<AppState>()((set, get) => {
         // The open vault first, so what you are looking at is current soonest;
         // the others follow so a switch is instant.
         if (open) {
-          const stats = await open.sync()
+          // Discovery costs nothing extra here: the engine lists the vault to
+          // work out what is pending, so a file that turned up on disk is
+          // pushed in this pass and listed by the refresh below.
+          await open.sync()
           set({ sync: 'idle', lastSyncedAt: Date.now() })
           await refreshFiles()
-
-          // If the open note changed underneath us, show the new bytes — but
-          // never over unsaved typing.
-          const { currentPath, unsaved } = get()
-          if (currentPath && !unsaved && stats.pulled + stats.conflicts > 0) {
-            const runtime = runtimeFor(currentVault)
-            const meta = await runtime.store.meta(currentPath)
-            if (!meta) {
-              set({ currentPath: undefined, content: '', backlinks: [] })
-            } else {
-              const text = decodeText(await runtime.store.read(currentPath))
-              if (text !== get().content) set({ content: text })
-            }
-          }
+          await reopenIfChanged()
+        } else {
+          // Nothing to push it to, but the folder is still shared with
+          // whatever else writes into it.
+          await rescan()
         }
 
         for (const vault of vaults) {
@@ -1101,6 +1160,11 @@ export function startBackgroundSync(): () => void {
   }
   window.addEventListener('online', tick)
   document.addEventListener('visibilitychange', onVisible)
+  // Coming back to the window is the moment a vault kept as a folder is most
+  // likely to have moved: editing it in Obsidian and switching over is the
+  // whole point of it being a folder. A window that was never hidden fires no
+  // visibility change, so this is a second way in rather than the same one.
+  window.addEventListener('focus', tick)
   // A last save before the tab goes away; the pending queue survives regardless.
   const onHide = () => void useApp.getState().save()
   window.addEventListener('pagehide', onHide)
@@ -1109,6 +1173,7 @@ export function startBackgroundSync(): () => void {
     clearInterval(interval)
     window.removeEventListener('online', tick)
     document.removeEventListener('visibilitychange', onVisible)
+    window.removeEventListener('focus', tick)
     window.removeEventListener('pagehide', onHide)
   }
 }

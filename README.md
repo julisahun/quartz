@@ -362,6 +362,17 @@ Nothing about these reaches the Pi until you ask it to, and nothing commits
 them to git. A synced vault has the server's history behind it; a folder from
 disk is worth what your own backups make of it.
 
+**Notes added beside it.** The folder is not the app's alone, so the app looks
+at it again rather than trusting what it last did there: notes dropped in from
+Finder, pulled in by git, or written by Obsidian turn up in the list on the
+sync tick and whenever the window regains focus — which is the moment that
+matters, since editing elsewhere and switching over is the point of the notes
+being files. The note on screen is replaced when the copy on disk has moved,
+except while you have unsaved typing in it, and closes if it is deleted out
+from under you. A folder that has been published sends what it finds in the
+same pass: a note that appeared is a note the server has never seen, which is
+what a new one looks like anyway.
+
 **Syncing one.** A folder can be published to the server — `sync…` in the
 status bar, or the phone's `⋯` menu — which asks what to call it, shows the id
 it will take, and then creates a vault of your own and uploads the folder into

@@ -144,7 +144,7 @@ function isMac(): boolean {
  * Creating an account no longer creates a vault for it, so an account starts
  * out owning nothing and this is what it sees. It is not a dead end: a vault
  * is made by publishing a folder, so the way forward is the same "open a
- * folder" this app offers everywhere else — and the way out is signing out,
+ * vault" this app offers everywhere else — and the way out is signing out,
  * which has to stay reachable from here or a new account would be stuck.
  */
 function NoVaults() {
@@ -162,7 +162,7 @@ function NoVaults() {
         </p>
         {foldersSupported() ? (
           <button className="primary" onClick={() => void openFolder()}>
-            Open a folder
+            Open a vault
           </button>
         ) : (
           <p className="muted">
