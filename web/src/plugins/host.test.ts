@@ -2,40 +2,49 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { allCommands } from '../state/commands'
 import { clearSlots } from '../ui/Slot'
 import type { QuartzPlugin } from './api'
-import { mount } from './host'
+import { start } from './host'
 
-let unmount: (() => void) | undefined
+const stops: Array<() => void> = []
 
 afterEach(() => {
-  unmount?.()
-  unmount = undefined
+  for (const stop of stops.splice(0).reverse()) stop()
   clearSlots()
 })
 
+/** Starts a plugin and remembers the teardown, so a test cannot leak one. */
+function run(plugin: QuartzPlugin): () => void {
+  const stop = start(plugin)
+  stops.push(stop)
+  return stop
+}
+
 const ids = () => allCommands().map((c) => c.id)
 
-describe('mounting plugins', () => {
+const plugin = (over: Partial<QuartzPlugin> & Pick<QuartzPlugin, 'id' | 'setup'>): QuartzPlugin => ({
+  name: over.id,
+  description: 'a plugin, for a test',
+  ...over,
+})
+
+describe('starting a plugin', () => {
   it('namespaces what a plugin registers by the plugin id', () => {
-    unmount = mount([
-      { id: 'alpha', name: 'Alpha', setup: (q) => q.commands.add({ id: 'go', title: 'Alpha go', run: () => {} }) },
-      { id: 'beta', name: 'Beta', setup: (q) => q.commands.add({ id: 'go', title: 'Beta go', run: () => {} }) },
-    ])
+    run(plugin({ id: 'alpha', setup: (q) => q.commands.add({ id: 'go', title: 'Alpha go', run: () => {} }) }))
+    run(plugin({ id: 'beta', setup: (q) => q.commands.add({ id: 'go', title: 'Beta go', run: () => {} }) }))
     // Two plugins may both call their command `go` and both survive.
     expect(ids()).toEqual(['alpha/go', 'beta/go'])
   })
 
   it('takes everything back out on teardown', () => {
-    const stop = mount([
-      {
+    const stop = run(
+      plugin({
         id: 'alpha',
-        name: 'Alpha',
         setup(q) {
           q.commands.add({ id: 'go', title: 'Go', run: () => {} })
           q.ui.sidebarSection({ id: 'panel', title: 'Panel', render: () => null })
           q.ui.statusItem({ id: 'item', render: () => null })
         },
-      },
-    ])
+      }),
+    )
     expect(ids()).toEqual(['alpha/go'])
     stop()
     expect(ids()).toEqual([])
@@ -43,7 +52,7 @@ describe('mounting plugins', () => {
 
   it('runs a plugin’s own teardown too', () => {
     const stopped = vi.fn()
-    mount([{ id: 'a', name: 'A', setup: () => stopped }])()
+    run(plugin({ id: 'a', setup: () => stopped }))()
     expect(stopped).toHaveBeenCalledOnce()
   })
 
@@ -53,19 +62,15 @@ describe('mounting plugins', () => {
    */
   it('starts the rest when one plugin throws', () => {
     const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const bad: QuartzPlugin = {
-      id: 'bad',
-      name: 'Bad',
-      setup() {
-        throw new Error('boom')
-      },
-    }
-    const good: QuartzPlugin = {
-      id: 'good',
-      name: 'Good',
-      setup: (q) => q.commands.add({ id: 'go', title: 'Go', run: () => {} }),
-    }
-    unmount = mount([bad, good])
+    run(
+      plugin({
+        id: 'bad',
+        setup() {
+          throw new Error('boom')
+        },
+      }),
+    )
+    run(plugin({ id: 'good', setup: (q) => q.commands.add({ id: 'go', title: 'Go', run: () => {} }) }))
     expect(ids()).toEqual(['good/go'])
     expect(quiet).toHaveBeenCalled()
     quiet.mockRestore()
@@ -73,38 +78,52 @@ describe('mounting plugins', () => {
 
   it('keeps what a plugin registered before it threw', () => {
     const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
-    unmount = mount([
-      {
+    const stop = run(
+      plugin({
         id: 'half',
-        name: 'Half',
         setup(q) {
           q.commands.add({ id: 'go', title: 'Go', run: () => {} })
           throw new Error('boom')
         },
-      },
-    ])
+      }),
+    )
     expect(ids()).toEqual(['half/go'])
     // And that half still comes out cleanly.
-    unmount()
-    unmount = undefined
+    stop()
     expect(ids()).toEqual([])
     quiet.mockRestore()
   })
 
-  it('does not let one failing teardown strand the others', () => {
+  it('does not let a failing teardown strand the rest of its own', () => {
     const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const stop = mount([
-      {
+    const stop = run(
+      plugin({
         id: 'bad',
-        name: 'Bad',
-        setup: () => () => {
-          throw new Error('boom')
+        setup(q) {
+          q.commands.add({ id: 'go', title: 'Go', run: () => {} })
+          return () => {
+            throw new Error('boom')
+          }
         },
-      },
-      { id: 'good', name: 'Good', setup: (q) => q.commands.add({ id: 'go', title: 'Go', run: () => {} }) },
-    ])
+      }),
+    )
     stop()
+    // The plugin's own teardown threw; the command it registered still went.
     expect(ids()).toEqual([])
+    expect(quiet).toHaveBeenCalled()
     quiet.mockRestore()
+  })
+
+  /**
+   * The marketplace calls a teardown when a row is switched off, and nothing
+   * stops it being switched off twice — a double tap, or a stop during an
+   * unmount that already stopped it.
+   */
+  it('is safe to stop twice', () => {
+    const stopped = vi.fn()
+    const stop = run(plugin({ id: 'a', setup: () => stopped }))
+    stop()
+    stop()
+    expect(stopped).toHaveBeenCalledOnce()
   })
 })

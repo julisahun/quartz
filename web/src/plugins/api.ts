@@ -25,6 +25,17 @@ export interface QuartzPlugin {
   /** Namespaces everything this plugin registers. Unique across plugins. */
   id: string
   name: string
+  /** One line, in the marketplace, of what turning this on does. */
+  description: string
+  /**
+   * Who wrote it. Everything bundled says "Quartz", and the field exists so a
+   * row that came from somewhere else could say so instead.
+   */
+  author?: string
+  /** Shown beside the name. Bundled plugins move with the app's version. */
+  version?: string
+  /** A character or two for the marketplace tile. Defaults to the initial. */
+  icon?: string
   /**
    * Called once, at start-up. Anything registered here is undone by the
    * teardown the host holds, so a plugin does not have to unregister its own

@@ -446,6 +446,54 @@ Two things fell out of building it:
   anywhere near it. That was not the reason for passing it in, but it is the
   best thing about having done so.
 
+## A settings screen, and a marketplace (2026-09-08)
+
+Plugins shipped on, all three of them, on every device — which was the build's
+switch mistaken for a person's. Deleting a line in `plugins/index.tsx` is a
+developer's way to turn one off, and there was no other. So four questions,
+settled in one sitting:
+
+| Question | Decision | Notes |
+|---|---|---|
+| Where does the way in go? | **The bottom bar, beside the sync light** | It is the one bar that renders at both widths, so one gear serves the phone and the desktop. Beside the light rather than out at the end, so it does not move as the actions beside a note come and go. |
+| What do the three bundled plugins start as? | **All off** | Being on the catalogue makes a plugin available, not running. An app that grows behaviour on update is one nobody chose — and the cost is real and accepted: the three vanish from devices that had them until they are turned back on. |
+| What moves into it? | **The account** | Change password, sign out, sign in. Vault actions — switch, sync now, forget folder, keep as files — stay in the `⋯` sheet, because they act on the vault in front of you and that is where it is visible. |
+| How does the marketplace read? | **Store-shaped** | A search field, installed above available, `Install` / `Remove`. The rows are a catalogue — name, author, version, a sentence — so the shape people already know how to read is the right one, with a footer saying the code ships with the app. |
+
+The word "marketplace" promises a place code comes *from*, and this one does
+not have that yet: bundling was decided in "Plugins, after all" above, and a
+plugin in a shared vault is still a way for another member to run code on my
+phone. So the shape is the store's and the footer is honest — these ship with
+Quartz, "install" costs no download, and the list grows when the app does.
+
+Four things fell out of building it:
+
+- **The screen state had to become a stack.** It was one `pushed` boolean,
+  which cannot answer "back to where": the gear is on the status bar, so
+  settings opens over a note, and it has to come back to that note rather than
+  to the list. `ui/screens.ts` came out of `app.tsx` to be tested, since
+  `history` and the phone's back gesture ride on it.
+- **Settings covers the app rather than replacing it.** Unmounting the two
+  panes would throw away CodeMirror's undo history and cursor while somebody
+  read a preference. It is `position: absolute` over the grid, with the panes
+  behind it `inert`.
+- **The marketplace registers itself into a fourth slot.** A settings screen
+  with a hardcoded plugins block would have put plugin awareness into app code
+  and broken the invariant that `src/plugins/` is deletable. So
+  `settings.sections` is a slot like the other three, `SettingsView` renders it
+  without knowing plugins exist, and the invariant was re-checked by actually
+  removing the directory: it compiles, and 257 of the tests still pass.
+- **The preference keeps ids it does not recognise.** A build without a plugin
+  cannot start it, but it must not be the reason a choice about it is lost —
+  downgrade, launch, upgrade, and it should still be on. That also gave
+  `uninstall` a job for a plugin that is not in the catalogue at all.
+
+Two things the screen picked up on the way, because it was the first place they
+could go: this device's **name**, which is not only bookkeeping — it is in the
+middle of every conflict copy's filename, read by a person choosing between two
+versions — and the desktop build's **server address**, which until now could
+only be set from the devtools console.
+
 ## Decisions taken while building
 
 - **Pure-Go SQLite** (`modernc.org/sqlite`) rather than `mattn/go-sqlite3`, so

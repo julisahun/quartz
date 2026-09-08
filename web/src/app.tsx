@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Dialogs } from './ui/dialogs'
 import { useSwipeBack } from './ui/gestures'
 import { useIsPhone } from './ui/media'
 import { Notices } from './ui/Notices'
 import { NoteEditor } from './ui/NoteEditor'
 import { QuickOpen } from './ui/QuickOpen'
+import { useScreens } from './ui/screens'
+import { SettingsView } from './ui/SettingsView'
 import { Sidebar } from './ui/Sidebar'
 import { StatusBar } from './ui/StatusBar'
 import { LoginScreen } from './ui/LoginScreen'
@@ -32,7 +34,7 @@ export function App() {
 
   const [livePreview, setLivePreview] = useState(() => localStorage.getItem('livePreview') !== 'off')
   const [quickOpen, setQuickOpen] = useState(false)
-  const { screen, showNote, back } = useScreens(isPhone)
+  const { screen, showNote, showSettings, back } = useScreens(isPhone)
   // The node, not a ref: the pane only exists once boot leaves the splash, and
   // an effect keyed on a ref object would never see it arrive.
   const [pane, setPane] = useState<HTMLElement | null>(null)
@@ -106,11 +108,13 @@ export function App() {
     )
   }
 
+  const covered = screen === 'settings'
+
   return (
     <div className={`app ${isPhone ? `phone screen-${screen}` : 'wide'}`}>
       {lostSession && <SignedOutBanner />}
-      <Sidebar onNavigate={showNote} inert={isPhone && screen === 'note'} />
-      <main className="pane" ref={setPane} inert={isPhone && screen === 'list'}>
+      <Sidebar onNavigate={showNote} inert={covered || (isPhone && screen === 'note')} />
+      <main className="pane" ref={setPane} inert={covered || (isPhone && screen === 'list')}>
         <NoteEditor
           livePreview={livePreview}
           onToggleLivePreview={() => setLivePreview((v) => !v)}
@@ -118,7 +122,12 @@ export function App() {
         />
       </main>
       <Notices />
-      <StatusBar livePreview={livePreview} onToggleLivePreview={() => setLivePreview((v) => !v)} />
+      <StatusBar
+        livePreview={livePreview}
+        onToggleLivePreview={() => setLivePreview((v) => !v)}
+        onOpenSettings={showSettings}
+      />
+      {covered && <SettingsView onBack={back} />}
       <QuickOpen open={quickOpen} onClose={() => setQuickOpen(false)} onOpened={showNote} />
       <Dialogs />
     </div>
@@ -127,54 +136,6 @@ export function App() {
 
 function isMac(): boolean {
   return /Mac|iP(hone|od|ad)/.test(navigator.platform || navigator.userAgent)
-}
-
-type Screen = 'list' | 'note'
-
-/**
- * One screen at a time on a phone, with the back gesture and the browser's own
- * back button both meaning the same thing. The note screen is a history entry,
- * so a swipe from the edge of a standalone PWA does what it does everywhere
- * else on the device.
- */
-function useScreens(enabled: boolean) {
-  const [screen, setScreen] = useState<Screen>('list')
-  const pushed = useRef(false)
-
-  useEffect(() => {
-    const onPop = () => {
-      pushed.current = false
-      setScreen('list')
-    }
-    window.addEventListener('popstate', onPop)
-    return () => window.removeEventListener('popstate', onPop)
-  }, [])
-
-  const showNote = useCallback(() => {
-    if (!enabled) return
-    if (!pushed.current) {
-      pushed.current = true
-      history.pushState({ quartz: 'note' }, '')
-    }
-    setScreen('note')
-  }, [enabled])
-
-  const back = useCallback(() => {
-    if (pushed.current) {
-      // popstate does the rest, so there is one path out of the note screen.
-      history.back()
-      return
-    }
-    setScreen('list')
-  }, [])
-
-  // Growing past the phone breakpoint shows both panes at once; the pushed
-  // entry is harmless, and stays until it is popped.
-  useEffect(() => {
-    if (!enabled) setScreen('list')
-  }, [enabled])
-
-  return { screen, showNote, back }
 }
 
 /**

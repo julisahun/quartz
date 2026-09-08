@@ -7,13 +7,7 @@ import { tagMatches } from '../state/tags'
 import { buildTree, foldersTo } from '../state/tree'
 import { isLocal, vaultHint } from '../state/vaults'
 import { foldersSupported, isFolderBacked } from '../vault/folders'
-import {
-  promptForgetFolder,
-  promptNewNote,
-  promptPromote,
-  promptChangePassword,
-  promptSignOut,
-} from './actions'
+import { promptForgetFolder, promptNewNote, promptPromote } from './actions'
 import { AppBar } from './AppBar'
 import { openMenu } from './dialogs'
 import { usePullToRefresh } from './gestures'
@@ -45,7 +39,6 @@ export function Sidebar({ onNavigate, inert }: Props) {
   const openFolder = useApp((s) => s.openFolder)
   const cloneVault = useApp((s) => s.cloneVault)
   const signedIn = useApp((s) => s.signedIn)
-  const showLogin = useApp((s) => s.showLogin)
   const user = useApp((s) => s.user)
   const isPhone = useIsPhone()
 
@@ -140,13 +133,9 @@ export function Sidebar({ onNavigate, inert }: Props) {
                 ]
               : []),
           ]),
-      // An account is what a password belongs to; a folder on disk has none.
-      ...(signedIn
-        ? [
-            { label: 'Change password…', run: () => void promptChangePassword() },
-            { label: 'Sign out', run: () => void promptSignOut() },
-          ]
-        : [{ label: 'Sign in…', hint: 'Needed to sync a folder', run: () => showLogin(true) }]),
+      // The account is not here: signing in and out is a property of the
+      // device, not of the vault this sheet is about, and it lives in settings
+      // behind the gear. What is left is all things done *to* a vault.
     ])
   }
 

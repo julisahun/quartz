@@ -17,6 +17,10 @@ const KEYS = {
   token: 'quartz.token',
   collapsed: 'quartz.collapsed',
   sidebarWidth: 'quartz.sidebarWidth',
+  // Unprefixed, because the desktop shell has been reading it under this name
+  // since before there was any way to set it. Renaming it would point existing
+  // installs at the default server.
+  serverUrl: 'serverUrl',
 } as const
 
 function read(key: string): string | undefined {
@@ -98,6 +102,16 @@ export const persisted = {
   setSidebarWidth: (px: number) => write(KEYS.sidebarWidth, String(px)),
 
   /**
+   * Which server the desktop shell talks to.
+   *
+   * Only the desktop build has one to choose: the PWA is served by the server
+   * it syncs with, so its API is same-origin and there is nothing to point
+   * anywhere. Read once at start-up, so a change here lands on the next launch.
+   */
+  serverUrl: () => read(KEYS.serverUrl),
+  setServerUrl: (url: string) => write(KEYS.serverUrl, url),
+
+  /**
    * Forgets who was signed in, without touching the vaults themselves: the
    * notes stay in local storage for the next sign-in, but a deliberate sign-out
    * does return you to the login screen.
@@ -131,4 +145,14 @@ export const persisted = {
     write(KEYS.device, name)
     return name
   },
+
+  /**
+   * Renames this device.
+   *
+   * Worth offering because the generated name is not only bookkeeping — it is
+   * in the middle of every conflict copy's filename, where it is read by a
+   * person deciding which of two versions to keep. Old conflict files keep the
+   * name they were written with; nothing rewrites history.
+   */
+  setDevice: (name: string) => write(KEYS.device, name),
 }

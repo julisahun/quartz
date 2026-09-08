@@ -17,30 +17,37 @@ import type { NoteRef, Quartz, QuartzPlugin, VaultSnapshot } from './api'
  * plugin. Delete `src/plugins/` and the two lines in `main.tsx` that call
  * this, and nothing else in the tree has to change.
  */
-export function mount(plugins: QuartzPlugin[]): () => void {
-  const disposers: Array<() => void> = []
 
-  for (const plugin of plugins) {
-    const mine: Array<() => void> = []
-    try {
-      const teardown = plugin.setup(quartzFor(plugin, mine))
-      if (teardown) mine.push(teardown)
-    } catch (err) {
-      // One plugin failing to start is not a reason for the rest not to.
-      console.error(`plugin ${plugin.id} failed to start`, err)
-    }
-    disposers.push(...mine)
+/**
+ * Starts one plugin, and hands back the teardown for everything it registered.
+ *
+ * One at a time rather than a set, because a plugin can now be turned on and
+ * off while the app is running: the marketplace holds one of these per plugin
+ * and calls it when a row is switched off.
+ */
+export function start(plugin: QuartzPlugin): () => void {
+  const mine: Array<() => void> = []
+
+  try {
+    const teardown = plugin.setup(quartzFor(plugin, mine))
+    if (teardown) mine.push(teardown)
+  } catch (err) {
+    // A plugin failing to start is a bug in that plugin, not a reason for the
+    // app to come up without the others — or without its notes. Whatever it
+    // managed to register before throwing stays, and comes out below.
+    console.error(`plugin ${plugin.id} failed to start`, err)
   }
 
   return () => {
     // Backwards, so a plugin comes apart in the order it was put together.
-    for (const dispose of disposers.reverse()) {
+    for (const dispose of mine.reverse()) {
       try {
         dispose()
       } catch (err) {
-        console.error('a plugin failed to shut down', err)
+        console.error(`plugin ${plugin.id} failed to shut down`, err)
       }
     }
+    mine.length = 0
   }
 }
 

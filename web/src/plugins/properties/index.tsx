@@ -14,7 +14,11 @@ import { Section } from '../Section'
  */
 export const properties: QuartzPlugin = {
   id: 'properties',
-  name: 'Properties',
+  name: 'By property',
+  description: 'Groups the notes in the sidebar by a frontmatter property, discovered from the notes that have one.',
+  author: 'Quartz',
+  version: '1.0.0',
+  icon: '≡',
   setup(q) {
     q.ui.sidebarSection({
       id: 'by-property',

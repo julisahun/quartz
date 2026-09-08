@@ -1,19 +1,14 @@
 import { useApp, type SyncState } from '../state/store'
 import { isLocal } from '../state/vaults'
-import {
-  promptDelete,
-  promptForgetFolder,
-  promptPromote,
-  promptRename,
-  promptChangePassword,
-  promptSignOut,
-} from './actions'
+import { promptDelete, promptForgetFolder, promptPromote, promptRename } from './actions'
+import { Gear } from './icons'
 import { useIsPhone } from './media'
 import { Slot } from './Slot'
 
 interface Props {
   livePreview: boolean
   onToggleLivePreview: () => void
+  onOpenSettings: () => void
 }
 
 const label: Record<SyncState, string> = {
@@ -26,11 +21,16 @@ const label: Record<SyncState, string> = {
 }
 
 /**
- * On a phone this is only the sync light: everything else moved into the
- * overflow menus, where a target can be a finger wide. On a desktop it stays
- * the row of actions it has always been.
+ * On a phone this is the sync light and the way into settings: everything else
+ * moved into the overflow menus, where a target can be a finger wide. On a
+ * desktop it stays the row of actions it has always been.
+ *
+ * The gear renders at both widths, and is the only thing here that does. It is
+ * the way to the account, so it cannot be behind the `!isPhone` gate the rest
+ * of these buttons are — and it sits beside the sync light rather than out at
+ * the end, so it does not move as the actions beside a note come and go.
  */
-export function StatusBar({ livePreview, onToggleLivePreview }: Props) {
+export function StatusBar({ livePreview, onToggleLivePreview, onOpenSettings }: Props) {
   const sync = useApp((s) => s.sync)
   const pending = useApp((s) => s.pending)
   const unsaved = useApp((s) => s.unsaved)
@@ -38,7 +38,6 @@ export function StatusBar({ livePreview, onToggleLivePreview }: Props) {
   const currentVault = useApp((s) => s.currentVault)
   const isFolder = useApp((s) => s.vaults.some((v) => v.id === s.currentVault && isLocal(v)))
   const signedIn = useApp((s) => s.signedIn)
-  const showLogin = useApp((s) => s.showLogin)
   const syncNow = useApp((s) => s.syncNow)
   const isPhone = useIsPhone()
 
@@ -55,6 +54,14 @@ export function StatusBar({ livePreview, onToggleLivePreview }: Props) {
       </button>
       {unsaved && <span className="muted">unsaved…</span>}
       <Slot name="status.items" />
+      <button
+        className="icon-button"
+        onClick={onOpenSettings}
+        aria-label="Settings"
+        title="Settings"
+      >
+        <Gear />
+      </button>
       <span className="spacer" />
       {!isPhone && (
         <>
@@ -82,23 +89,6 @@ export function StatusBar({ livePreview, onToggleLivePreview }: Props) {
                 forget folder
               </button>
             </>
-          )}
-          {signedIn ? (
-            <>
-              <button className="ghost" onClick={() => void promptChangePassword()}>
-                password…
-              </button>
-              <button className="ghost" onClick={() => void promptSignOut()}>
-                sign out
-              </button>
-            </>
-          ) : (
-            // The way back to an account. Nothing else here leads to the login
-            // screen once a folder from disk is open, and without an account
-            // there is nothing to publish a folder to.
-            <button className="ghost" onClick={() => showLogin(true)}>
-              sign in
-            </button>
           )}
         </>
       )}

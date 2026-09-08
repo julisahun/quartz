@@ -10,6 +10,10 @@ import type { Quartz, QuartzPlugin } from '../api'
 export const wordCount: QuartzPlugin = {
   id: 'word-count',
   name: 'Word count',
+  description: 'How long the open note is, in the status bar, counted from the editor rather than the last save.',
+  author: 'Quartz',
+  version: '1.0.0',
+  icon: '¶',
   setup(q) {
     q.ui.statusItem({ id: 'count', render: () => <Count q={q} /> })
   },

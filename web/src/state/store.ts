@@ -45,7 +45,7 @@ const SYNC_INTERVAL_MS = 30_000
 const desktop = isDesktop()
 // On the desktop the API base is absolute: the shell serves the app from its
 // own origin, so it has to be told where the server is.
-const apiBase = desktop ? (localStorage.getItem('serverUrl') ?? 'https://notes.sigint-pm.uk') : ''
+const apiBase = desktop ? (persisted.serverUrl() ?? 'https://notes.sigint-pm.uk') : ''
 const api = new HttpApi(apiBase, desktop ? persisted.token() : undefined, (token) =>
   persisted.setToken(token),
 )

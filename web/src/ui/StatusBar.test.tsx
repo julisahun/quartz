@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useApp } from '../state/store'
 import { StatusBar } from './StatusBar'
 
@@ -9,6 +9,8 @@ import { StatusBar } from './StatusBar'
 
 let host: HTMLDivElement | undefined
 let root: Root | undefined
+
+const onOpenSettings = vi.fn()
 
 /** A device holding one folder opened from disk, and nothing else. */
 function render(state: Partial<ReturnType<typeof useApp.getState>>) {
@@ -29,15 +31,20 @@ function render(state: Partial<ReturnType<typeof useApp.getState>>) {
     })
   })
   root = createRoot(host)
-  act(() => root!.render(<StatusBar livePreview onToggleLivePreview={() => {}} />))
+  act(() =>
+    root!.render(
+      <StatusBar livePreview onToggleLivePreview={() => {}} onOpenSettings={onOpenSettings} />,
+    ),
+  )
   return host
 }
 
 const buttons = () => [...host!.querySelectorAll('button')].map((b) => b.textContent)
-const button = (label: string) =>
-  [...host!.querySelectorAll('button')].find((b) => b.textContent === label)
+const labelled = (label: string) =>
+  [...host!.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === label)
 
 afterEach(() => {
+  onOpenSettings.mockClear()
   act(() => root?.unmount())
   host?.remove()
   root = undefined
@@ -45,22 +52,33 @@ afterEach(() => {
 })
 
 describe('StatusBar, sitting in a folder opened from disk', () => {
-  it('offers a way in when there is no session', () => {
+  /**
+   * The account moved into settings, so this is the only way to it — and a
+   * folder keeps the app in "ready" for ever, so on a device that never had a
+   * session there is nothing else that leads to the login screen at all.
+   */
+  it('offers the way into settings, at either width', () => {
     render({})
-    // Without this the login screen is unreachable: a folder keeps the app in
-    // "ready", and the signed-out banner is keyed on a session this device
-    // never had.
-    expect(buttons()).toContain('sign in')
-    expect(buttons()).not.toContain('sync…')
+    expect(labelled('Settings')).toBeTruthy()
 
-    act(() => button('sign in')!.click())
-    expect(useApp.getState().phase).toBe('login')
+    act(() => labelled('Settings')!.click())
+    expect(onOpenSettings).toHaveBeenCalledOnce()
   })
 
-  it('offers to publish the folder once there is one', () => {
+  it('no longer carries the account itself', () => {
+    render({ signedIn: true, user: 'juli' })
+    expect(buttons()).not.toContain('password…')
+    expect(buttons()).not.toContain('sign out')
+  })
+
+  it('offers to publish the folder once there is a session', () => {
     render({ signedIn: true, user: 'juli' })
     expect(buttons()).toContain('sync…')
-    expect(buttons()).not.toContain('sign in')
+  })
+
+  it('does not offer to publish a folder with no account to publish it to', () => {
+    render({})
+    expect(buttons()).not.toContain('sync…')
   })
 
   it('does not read a vault list as a session', () => {
@@ -74,7 +92,6 @@ describe('StatusBar, sitting in a folder opened from disk', () => {
         { id: 'juli', name: 'juli', owner: 'juli', role: 'owner' },
       ],
     })
-    expect(buttons()).toContain('sign in')
-    expect(buttons()).not.toContain('sign out')
+    expect(buttons()).not.toContain('sync…')
   })
 })

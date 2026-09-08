@@ -47,6 +47,8 @@ server/           Go server, admin CLI and the CLI sync client
   cmd/quartz-passwd   argon2id hash generator, for a hand-written .env
 web/              the PWA (milestones 2–4, 6)
   src/plugins         what is bundled on top of it — the only plugin-aware code
+                      (`index.tsx` is the catalogue; nothing runs until it is
+                      turned on in Settings → Plugins)
 desktop/          Tauri shell (milestone 5)
 deploy/           systemd unit, cloudflared snippet, Pi checklist
 ```
@@ -130,8 +132,8 @@ publishing a folder from the app is what creates a vault, so a new account's
 first screen is an empty one offering to open a folder. Run the CLI as the user
 the service runs as, so the directories it creates are owned correctly.
 
-A signed-in account can change **its own** password in the app — `password…` in
-the status bar, or the phone's `⋯` menu — which asks for the current one and
+A signed-in account can change **its own** password in the app — the gear in
+the status bar, then **Settings → Account** — which asks for the current one and
 offers to sign the account's other devices out. That is a change, not a
 recovery: it needs the password you already have. Someone who has *forgotten*
 theirs still needs `quartz-admin user passwd`, because there is no reset link
@@ -214,7 +216,8 @@ Below 46rem the layout is one screen at a time: the note list is the home
 screen and a note is pushed over it as a history entry, so the back gesture of
 a standalone PWA works. Above it, list and editor sit side by side as before.
 The phone screens carry their own top bars — the actions live in a `⋯` sheet
-rather than in the status bar, which shrinks to the sync light — and the editor
+rather than in the status bar, which shrinks to the sync light and the gear —
+and the editor
 gets a scrolling markdown toolbar above the keyboard. Asking anything (a new
 note's title, a rename, a delete) goes through `ui/dialogs.tsx` instead of
 `prompt()`/`confirm()`. Swipe in from the left edge to go back, pull the list
@@ -234,13 +237,35 @@ to a full path only when the new name would otherwise be ambiguous.
 
 The desktop shell is in [`desktop/`](desktop/README.md).
 
+## Settings
+
+The gear beside the sync light opens **Settings**, over the app rather than in
+place of it — the editor underneath keeps its undo history and its cursor while
+somebody reads a preference. On a phone it is a `history` entry, so the back
+gesture dismisses it, and it comes back to the note it was opened from rather
+than to the list.
+
+| | |
+|---|---|
+| **Account** | signed in as, change password, sign out — and the only way to the login screen on a device that has never had a session |
+| **This device** | its name, which is the one in the middle of every conflict copy's filename; how much of the device's quota the vaults are using; and, on the desktop build, which server to talk to |
+| **Plugins** | the marketplace below |
+
+Everything here belongs to **this device** and none of it syncs, which the
+screen says out loud: a phone and a laptop can disagree, and once a vault has
+members it would be wrong for them not to be able to.
+
+What is *not* here is anything that acts on the vault in front of you — switch
+vault, sync now, rename, delete, forget folder. Those stay on the bars and in
+the `⋯` sheets, where the thing being acted on is on screen.
+
 ## Plugins
 
 Plugins were a non-goal for a long time, and for a good reason: a plugin API is
 a promise not to refactor, and nothing here was finished enough to make one.
 What changed is the shape. These are **compiled in, not installed** — there is
-no loader, no sandbox and no registry, `web/src/plugins/index.ts` lists what
-ships, and turning one off is deleting a line.
+no loader, no sandbox and no remote registry, and `web/src/plugins/index.tsx`
+lists what ships.
 
 That is what keeps the cost near zero. Bundled code needs no CSP relaxation,
 works offline and on iOS like the rest of the app, and renders real React
@@ -255,13 +280,15 @@ instead, each of which it wanted anyway:
 | | |
 |---|---|
 | `state/commands.ts` | the command registry — ⌘P behind `>`; the note actions register into it too |
-| `ui/Slot.tsx` | named places (`sidebar.sections`, `status.items`, `note.panels`) that render whatever is in them |
+| `ui/Slot.tsx` | named places (`sidebar.sections`, `status.items`, `note.panels`, `settings.sections`) that render whatever is in them |
 | `readNote(path)` | one method on the store: a note's text |
 
-`src/plugins/host.ts` is the only file that knows what a plugin is. Delete
-`src/plugins/` and the two lines in `main.tsx` that start it, and nothing else
-in the tree has to change — which is the measure of whether this stayed
-honest, so there is a test that checks it.
+`src/plugins/host.ts` is the only file that knows what a plugin is, and
+`src/plugins/index.tsx` the only one that knows where the marketplace goes.
+Delete `src/plugins/` and the two lines in `main.tsx` that start it, and
+nothing else in the tree has to change — the settings screen renders
+`settings.sections` and simply finds nothing in it. That is the measure of
+whether this stayed honest.
 
 A plugin is an id, a name, and a `setup(q)` that registers things:
 
@@ -282,7 +309,11 @@ so two plugins may both call their command `today`. A plugin that throws on the
 way up does not stop the others, and one that throws while rendering costs its
 own slot and nothing else.
 
-Three ship:
+Three ship, and **none of them starts until it is turned on.** Being on the
+list makes a plugin available, not running: the marketplace under **Settings →
+Plugins** is where one is installed or removed, it takes effect on the tap
+rather than on a restart, and the choice is remembered per device in
+`localStorage` — a plugin turned on here is not turned on on the phone.
 
 | | |
 |---|---|

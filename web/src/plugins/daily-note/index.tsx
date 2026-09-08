@@ -14,6 +14,10 @@ import type { Quartz, QuartzPlugin } from '../api'
 export const dailyNote: QuartzPlugin = {
   id: 'daily-note',
   name: 'Daily note',
+  description: "Opens today's or yesterday's note in journal/, writing it from a template the first time.",
+  author: 'Quartz',
+  version: '1.0.0',
+  icon: '◷',
   setup(q) {
     q.commands.add({
       id: 'today',

@@ -129,3 +129,112 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/* ---------- marketplace ---------- */
+
+/* Bounded so the field does not stretch to the width of the settings column;
+   the heading beside it keeps the rest. */
+.px-market-search {
+  flex: 0 1 12rem;
+  min-height: var(--tap);
+}
+
+.px-market-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.px-market-group-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.px-market-count {
+  font-weight: 400;
+  color: var(--faint);
+}
+
+.px-market-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.px-market-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+
+/* A monogram, not an image: a bundled plugin has no asset to ship and a row
+   still needs something to fix the eye on down the list. */
+.px-market-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 8px;
+  background: var(--code-bg);
+  color: var(--muted);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.px-market-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.px-market-name {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.95rem;
+}
+
+.px-market-version {
+  font-size: 0.75rem;
+  color: var(--faint);
+}
+
+.px-market-desc {
+  margin: 0.15rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.px-market-author {
+  margin: 0.15rem 0 0;
+  font-size: 0.75rem;
+  color: var(--faint);
+}
+
+.px-market-action {
+  flex: none;
+  padding: 0 0.9rem;
+  font-size: 0.85rem;
+}
+
+.px-market-note {
+  margin: 0.4rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
