@@ -582,6 +582,42 @@ folder — the push step lists it — and now it is the case for a loaded one to
 The fix if it is ever felt is the memo the browser already has, keyed on size
 and mtime, not a watcher.
 
+## A contract, and where the plugins did not go (2026-09-08)
+
+The plugins were nearly moved to a repository of their own, for conceptual
+independence. They were not, and the reason is worth writing down because the
+question will come back: the independence was never about where the files sit.
+The app already does not know plugins exist. A second repository would not have
+added to that — it would have added a version number to keep in step with this
+one, and made every change to a young API a two-repo dance.
+
+What was actually missing is that the boundary was a comment. `host.ts` claimed
+`src/plugins/` could be deleted along with two lines of `main.tsx`; `api.ts`
+claimed a plugin needed nothing else. Both were true when written. Neither was
+checked, which for a boundary that only matters on the day someone leans on it
+is the wrong way round.
+
+| Question | Decision | Notes |
+|---|---|---|
+| One repo for the plugins, or one each? | **Neither — extract the contract instead** | The unit that has to come out first is `api.ts`, not the plugins. Once `@quartz/plugin-api` is installable, repo topology stops being a question: anyone can depend on it from anywhere. And the answer is asymmetric anyway — my plugins have no reason to split, and someone else's plugin is their own repository by definition, which is not mine to choose. |
+| Where does the package live? | **A workspace package in this repo** | Published-shaped but unfrozen. `host.ts` has to satisfy the interface, so while the API is young the two change together constantly, and that should stay one commit that typechecks against every plugin at once. It gets a version number and a real release the day something outside this repo depends on it. |
+| Does it import the app's types? | **No — it declares its own** | `Property`, `Backlink`, `TagSummary`, `SearchHit` and `MenuItem` are declared in the package, so installing it brings none of the app's internals. The app keeps its own definitions where they belong, next to the link scanner and the client, and `contract.test.ts` fails to *compile* if the two drift. Same trade for `noteTitle`, `folderOf` and `tagKey`: seven lines said twice, because `noteTitle` has thirteen consumers here and making `Sidebar` import a path helper from the plugin API reads backwards. |
+| Does `parseFrontmatter` travel with it? | **No** | It is the editor's parser — `live-preview.ts`, `widgets.ts` and `state/tags.ts` all want it — so it is the app's behaviour rather than the contract's, and a second copy would be a second set of rules for what counts as a top-level key. `fakeQuartz` has no parser and takes one instead; the properties test hands over the real one so that what it asserts is still what the real one does. |
+| Does `Section` belong to the contract? | **Yes, and it carries no styles** | `sidebarSection` promises a block that is collapsed until it is opened, and `Section` is what keeps that promise. Its chevrons are inlined rather than imported from `ui/icons`. The `px-section*` class names stay the host's to theme: a package shipping its own CSS would only fight the app it runs in. |
+| Plugins loaded at runtime, when someone asks? | **Not yet — and not for want of a loader** | It is feasible and cheap: `setup(q)` receives the API instead of importing it, so `host.ts` would not change, and `startPlugins` already takes its catalogue as an argument. What stops it is the promise. Outside code that loads means an API that cannot move, and this one has had three consumers, all written here — freezing it now freezes whatever is wrong with it in ways nothing has revealed yet. The trigger is the first plugin not worth cutting a release for. |
+| Who would decide what is installable? | **The admin the catalogue, the device what runs** | Recorded now because the shape already exists and should not be lost: `enabled.ts` is per-device on purpose, so what runs on my phone stays mine, and a served catalogue would be `quartz-admin` work — which matches an app with no signup endpoint and CLI-only membership. A loaded plugin runs unsandboxed with the whole vault in reach, so an open registry is a different feature, not a bigger version of this one. |
+
+Two leaks turned up the moment the rule was executable, which is the argument
+for having written it: `properties` was reaching past `api.ts` into
+`state/frontmatter` for a type, and `Section` into `ui/icons` for two chevrons.
+Both are closed. The boundary test also asserts that the wire in `main.tsx` is
+still there, because otherwise deleting it would be the cheapest way to pass.
+
+Not done: there is no dev loop for a plugin outside `src/plugins/`. Seeing one
+run still means editing the `bundled` list by hand, so anyone else's checkout
+of this repo is permanently dirty — which is the actual thing blocking somebody
+else from writing one, and worth more than any of the above.
+
 ## Decisions taken while building
 
 - **Pure-Go SQLite** (`modernc.org/sqlite`) rather than `mattn/go-sqlite3`, so
