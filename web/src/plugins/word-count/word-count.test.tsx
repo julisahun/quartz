@@ -2,7 +2,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it } from 'vitest'
-import { fakeQuartz, type FakeQuartz } from '../fake-quartz'
+import { fakeQuartz, type FakeQuartz } from '@quartz/plugin-api'
 import { wordCount } from '.'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true

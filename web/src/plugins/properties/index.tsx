@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Property } from '../../state/frontmatter'
-import type { NoteRef, Quartz, QuartzPlugin } from '../api'
-import { Section } from '../Section'
+import { Section, type NoteRef, type Property, type Quartz, type QuartzPlugin } from '@quartz/plugin-api'
 
 /**
  * Notes grouped by a frontmatter property.

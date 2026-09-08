@@ -1,9 +1,6 @@
 import { useMemo } from 'react'
-import { folderOf, noteTitle } from '../state/notes'
-import type { Command } from '../state/commands'
-import type { NoteRef, Quartz, VaultSnapshot } from './api'
-import { parseFrontmatter } from '../state/frontmatter'
-import { tagKey } from '../state/tags'
+import type { Command, NoteRef, Property, Quartz, VaultSnapshot } from './api'
+import { folderOf, noteTitle, tagKey } from './paths'
 
 /**
  * A Quartz for tests: a vault held in a Map, and registries that record.
@@ -28,7 +25,22 @@ export interface FakeQuartz extends Quartz {
   run(id: string): Promise<void>
 }
 
-export function fakeQuartz(files: Record<string, string> = {}): FakeQuartz {
+export interface FakeOptions {
+  /**
+   * How a note's text becomes properties. Nothing has any, without one.
+   *
+   * Passed in rather than implemented here, because parsing frontmatter is the
+   * app's behaviour and not the contract's: Quartz reads it with the same
+   * parser the editor highlights it with, and a second parser in this package
+   * would be a second set of rules for what counts as a top-level key. A test
+   * that cares what the real one does hands it over — the app's own plugin
+   * tests pass `parseFrontmatter` — and one that only cares about properties
+   * can hand over something that returns them.
+   */
+  frontmatter?: (text: string) => Property[]
+}
+
+export function fakeQuartz(files: Record<string, string> = {}, options: FakeOptions = {}): FakeQuartz {
   const q: FakeQuartz = {
     files: new Map(Object.entries(files)),
     commands_: [],
@@ -54,7 +66,8 @@ export function fakeQuartz(files: Record<string, string> = {}): FakeQuartz {
         return text
       },
       async frontmatter(path) {
-        return parseFrontmatter(await q.vault.read(path))
+        const text = await q.vault.read(path)
+        return options.frontmatter?.(text) ?? []
       },
       tags: () => [],
       taggedWith: (tag) => {
@@ -93,7 +106,7 @@ export function fakeQuartz(files: Record<string, string> = {}): FakeQuartz {
 
     commands: {
       add(command) {
-        q.commands_.push(command as Command)
+        q.commands_.push(command)
       },
     },
 

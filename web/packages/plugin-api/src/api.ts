@@ -1,19 +1,63 @@
 import type { ReactNode } from 'react'
-import type { SearchHit } from '../api/client'
-import type { Property } from '../state/frontmatter'
-import type { Backlink } from '../state/links'
-import type { TagSummary } from '../state/vault-index'
-import type { MenuItem } from '../ui/dialogs'
+
+/**
+ * The vocabulary of the contract.
+ *
+ * These five shapes are declared here rather than imported from the app, so
+ * that installing this package brings nothing of Quartz's internals with it.
+ * The app keeps its own definitions where they belong — `Backlink` next to the
+ * link scanner, `SearchHit` next to the client — and `contract.test.ts` there
+ * fails to compile if either side drifts from the other.
+ */
+
+/** One frontmatter entry. */
+export interface Property {
+  key: string
+  /** A single value, or the items of a list. */
+  value: string | string[]
+}
+
+/** A note that links to the open one. */
+export interface Backlink {
+  /** The note the link is written in. */
+  path: string
+  title: string
+  line: number
+  context: string
+}
+
+export interface TagSummary {
+  /** The tag as it was first written — `#PNJ` stays `#PNJ` in the list. */
+  tag: string
+  /** Lower-cased, which is how tags are compared. */
+  key: string
+  /** Every note carrying it, sorted by title. */
+  paths: string[]
+}
+
+export interface SearchHit {
+  path: string
+  title: string
+  snippet: string
+}
+
+export interface MenuItem {
+  label: string
+  hint?: string
+  danger?: boolean
+  run: () => void
+}
 
 /**
  * What a plugin is handed, and all it is meant to need.
  *
- * Plugins are compiled into the app, so this is a convention rather than a
- * wall: a plugin that needs something exotic can import the module that has
- * it, the same as any other file here. The point of keeping this surface
- * small is that everything reached through it is the part promised to keep
- * working — anything else is a plugin holding the app's internals, and it
- * breaks when they move.
+ * Plugins are compiled into the app, so none of this is enforced at runtime —
+ * but it is enforced: the app's `boundary.test.ts` fails if a plugin imports
+ * anything but this package. It used to be a convention on the grounds that
+ * whoever wrote a plugin also wrote `state/store.ts`, which is no longer a
+ * safe thing to assume. Everything reached through here is the part promised
+ * to keep working; anything else is a plugin holding the app's internals, and
+ * it breaks when they move.
  */
 export interface Quartz {
   vault: VaultApi
@@ -96,12 +140,21 @@ export interface VaultApi {
   useVault(): VaultSnapshot
 }
 
+export interface Command {
+  /** Namespaced by the plugin's id, so two plugins may both call theirs `today`. */
+  id: string
+  title: string
+  /** Only offered while this says so — "rename" wants a note open. */
+  when?: () => boolean
+  run(): void | Promise<void>
+}
+
 export interface CommandApi {
   /**
    * Adds a command to ⌘P's `>` list. The id is namespaced by the plugin's,
    * so two plugins may both call theirs `today`.
    */
-  add(command: { id: string; title: string; when?: () => boolean; run(): void | Promise<void> }): void
+  add(command: Command): void
 }
 
 export interface UiApi {

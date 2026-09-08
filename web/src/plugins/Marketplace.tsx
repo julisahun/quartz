@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { QuartzPlugin } from './api'
+import type { QuartzPlugin } from '@quartz/plugin-api'
 import { install, uninstall, useCatalogue, useRunning } from './manager'
 
 /**

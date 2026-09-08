@@ -1,4 +1,4 @@
-import type { Quartz, QuartzPlugin } from '../api'
+import type { Quartz, QuartzPlugin } from '@quartz/plugin-api'
 
 /**
  * How long the open note is, in the status bar.

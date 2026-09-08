@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fakeQuartz, type FakeQuartz } from '../fake-quartz'
+import { fakeQuartz, type FakeQuartz } from '@quartz/plugin-api'
 import { dailyNote } from '.'
 
 let q: FakeQuartz

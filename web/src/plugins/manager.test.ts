@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { allCommands } from '../state/commands'
 import { clearSlots } from '../ui/Slot'
-import type { QuartzPlugin } from './api'
+import type { QuartzPlugin } from '@quartz/plugin-api'
 import { installedIds, setInstalled } from './enabled'
 import { install, startPlugins, uninstall } from './manager'
 

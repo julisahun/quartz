@@ -1,5 +1,5 @@
 import { addToSlot } from '../ui/Slot'
-import type { QuartzPlugin } from './api'
+import type { QuartzPlugin } from '@quartz/plugin-api'
 import { dailyNote } from './daily-note'
 import { properties } from './properties'
 import { wordCount } from './word-count'
@@ -7,7 +7,7 @@ import { Marketplace } from './Marketplace'
 import { startPlugins as startCatalogue } from './manager'
 import './plugins.css'
 
-export type { Quartz, QuartzPlugin } from './api'
+export type { Quartz, QuartzPlugin } from '@quartz/plugin-api'
 
 /**
  * What ships — the catalogue, not the running set.

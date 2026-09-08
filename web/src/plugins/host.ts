@@ -7,7 +7,7 @@ import { tagKey } from '../state/tags'
 import { askConfirm, askText, openMenu } from '../ui/dialogs'
 import { addToSlot } from '../ui/Slot'
 import type { FileMeta } from '../vault/types'
-import type { NoteRef, Quartz, QuartzPlugin, VaultSnapshot } from './api'
+import type { NoteRef, Quartz, QuartzPlugin, VaultSnapshot } from '@quartz/plugin-api'
 
 /**
  * The only file that knows what a plugin is.

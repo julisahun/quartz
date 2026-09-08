@@ -2,7 +2,8 @@
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fakeQuartz, type FakeQuartz } from '../fake-quartz'
+import { fakeQuartz, type FakeQuartz } from '@quartz/plugin-api'
+import { parseFrontmatter } from '../../state/frontmatter'
 import { properties } from '.'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -15,7 +16,7 @@ const note = (props: string, body = 'text') => `---\n${props}\n---\n\n${body}\n`
 
 /** Renders the section the plugin registered, and lets the scan settle. */
 async function show(files: Record<string, string>) {
-  q = fakeQuartz(files)
+  q = fakeQuartz(files, { frontmatter: parseFrontmatter })
   let render: (() => ReactNode) | undefined
   q.ui.sidebarSection = (section) => {
     render = section.render
@@ -114,7 +115,7 @@ describe('notes by property', () => {
   })
 
   it('skips a note it cannot read rather than failing the panel', async () => {
-    q = fakeQuartz({ 'a.md': note('status: doing'), 'gone.md': '' })
+    q = fakeQuartz({ 'a.md': note('status: doing'), 'gone.md': '' }, { frontmatter: parseFrontmatter })
     const real = q.vault.read
     q.vault.read = async (path) => {
       if (path === 'gone.md') throw new Error('vanished')
@@ -141,7 +142,7 @@ describe('notes by property', () => {
    */
   it('reads nothing at all while the section is closed', async () => {
     localStorage.setItem('section:properties', 'closed')
-    q = fakeQuartz({ 'a.md': note('status: doing') })
+    q = fakeQuartz({ 'a.md': note('status: doing') }, { frontmatter: parseFrontmatter })
     const read = vi.spyOn(q.vault, 'read')
     let render: (() => ReactNode) | undefined
     q.ui.sidebarSection = (section) => {

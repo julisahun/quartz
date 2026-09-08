@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { QuartzPlugin } from './api'
+import type { QuartzPlugin } from '@quartz/plugin-api'
 import { installedIds, setInstalled } from './enabled'
 import { start } from './host'
 
