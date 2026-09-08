@@ -496,6 +496,41 @@ html.resizing * {
   animation: spin 0.9s linear infinite;
 }
 
+/* The toggle and the ⋯ side by side, hovering as one row. */
+.folder-line {
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+}
+
+.folder-line:hover {
+  background: var(--bg-raised);
+}
+
+.folder-line:hover .folder-row {
+  color: var(--text);
+}
+
+/* Out of the way until the row is pointed at. Kept in the layout rather than
+   hidden, so the folder name does not shift when it appears — and always
+   visible where there is no hover to reveal it with. */
+.folder-actions {
+  flex: none;
+  min-width: 2rem;
+  opacity: 0;
+}
+
+.folder-line:hover .folder-actions,
+.folder-actions:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .folder-actions {
+    opacity: 1;
+  }
+}
+
 .folder-row {
   display: flex;
   align-items: center;
@@ -511,10 +546,7 @@ html.resizing * {
   text-align: left;
 }
 
-.folder-row:hover {
-  background: var(--bg-raised);
-  color: var(--text);
-}
+
 
 .folder-caret {
   display: inline-flex;
@@ -1494,6 +1526,11 @@ html.resizing * {
 .app.phone .folder-row {
   min-height: var(--tap);
   font-size: 0.95rem;
+}
+
+.app.phone .folder-actions {
+  min-width: var(--tap);
+  min-height: var(--tap);
 }
 
 .app.phone .status {

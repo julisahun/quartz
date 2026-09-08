@@ -494,6 +494,52 @@ middle of every conflict copy's filename, read by a person choosing between two
 versions — and the desktop build's **server address**, which until now could
 only be set from the devtools console.
 
+## Folders you can rename (2026-09-08)
+
+Folders were readable and nothing else: the tree turned paths back into the
+tree they came from, and there was no way to change one. Four questions,
+settled in one sitting:
+
+| Question | Decision | Notes |
+|---|---|---|
+| How is it reached? | **A `⋯` on the folder row** | Hover on a desktop, always there on a phone, opening the same sheet everything else uses. The row itself toggles, so the `⋯` is a second button rather than a hit test — a folder's actions must not be reachable only by opening it. A root folder has no row, so `⌘P` carries *New folder…* too. |
+| A name that is taken? | **Refused, and said back** | Merging two folders is a different operation with a different blast radius and there is no undo here. The sheet stays up with the reason where the label was, because a taken name is a small correction rather than a reason to start over. |
+| What happens to links? | **Only the spelled-out ones move** | A folder rename changes no file's *name*, so `[[Ossian]]` resolves by basename exactly as it did. Rewriting it would be a reformat, not a move. |
+| How much folder management? | **Rename, new, delete** | Delete is the one destructive one, so the count is in the question — and it counts *files*, since a folder holds the screenshots pasted into its notes as well as the notes. |
+
+The model is what made this small: **nothing stores a folder.** `dnd` exists
+because `dnd/Ossian.md` exists and stops existing when the last file leaves, so
+a rename is a set of moves and a delete is a set of deletes. Both stores with
+real directories already prune the ones a delete leaves empty — `vault.rs` and
+`pruneEmptyDirs` on the server — which was checked rather than assumed, and it
+means no folder operation makes or removes a directory anywhere.
+
+Four things fell out of it:
+
+- **A spelled-out link is not broken by the move — it is worse.** The resolver
+  falls back to the basename, so `[[dnd/Ossian]]` still finds the note after
+  `dnd` becomes `campaign`; it just names a path that is not there, and where
+  two notes share a basename the fallback can land on the other one. So those
+  are rewritten and bare names are not, which is a narrower and safer
+  transformation than the note rename's.
+- **Renaming `dnd` to `DND` loses notes if it is done in one pass.** On a
+  case-insensitive filesystem the new path is the old file, so the delete that
+  follows the write takes what was just written. It goes through a staging name
+  that differs by more than case, which is unambiguous on either kind of
+  filesystem.
+- **A rename moves every file, not every file the tree shows.** The tree lists
+  notes and PDFs; a folder also holds the screenshots pasted into its notes,
+  and moving only what was on screen would leave those behind, embedded from
+  notes that had moved.
+- **"New folder" has to make a note.** An empty folder has nothing to be
+  remembered by — it would not survive a launch and would never reach another
+  device — so rather than fake one in local state, the folder and its first
+  note are created together.
+
+Renaming asks for a **name**, not a path. That is what keeps the operation
+honest as a rename: the folder cannot be moved elsewhere, or inside itself, by
+typing — which would need a different set of guards and is a different feature.
+
 ## Decisions taken while building
 
 - **Pure-Go SQLite** (`modernc.org/sqlite`) rather than `mattn/go-sqlite3`, so

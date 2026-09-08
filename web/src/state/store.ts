@@ -16,7 +16,16 @@ import {
 } from '../vault/folders'
 import { isDesktop } from '../vault/tauri-bridge'
 import { decodeText, encodeText, type FileMeta, type VaultStore } from '../vault/types'
-import { retargetLinks, type Backlink } from './links'
+import {
+  filesIn,
+  folderExists,
+  folderName,
+  movedPath,
+  renamedFolder,
+  sameNameDifferentCase,
+  stagingFolder,
+} from './folders'
+import { retargetLinks, retargetMoved, type Backlink } from './links'
 import { buildResolver, isNote, mimeType, noteTitle, pathForTitle, uniquePath } from './notes'
 import { persisted } from './persist'
 import { detectEviction, requestPersistence } from './storage'
@@ -138,6 +147,20 @@ interface AppState {
   createNote(title: string, folder?: string): Promise<string>
   deleteNote(path: string): Promise<void>
   renameNote(from: string, to: string, updateLinks?: boolean): Promise<string>
+  /**
+   * Renames a folder, by moving every file under it.
+   *
+   * `name` is a name and not a path, so the folder stays where it is. Links
+   * that spelled the old folder out are brought up to date; bare `[[names]]`
+   * are untouched, because no file's name changes. Rejects a name that is
+   * already taken, and answers how many files moved and how many notes were
+   * rewritten.
+   */
+  renameFolder(folder: string, name: string): Promise<FolderRename>
+  /** Everything under a folder, gone. Answers how many files that was. */
+  deleteFolder(folder: string): Promise<number>
+  /** What a folder holds, at any depth: notes, PDFs and attachments alike. */
+  folderContents(folder: string): { files: number; notes: number }
   /** How many notes link to this one — what a rename is about to break. */
   linksTo(path: string): Promise<number>
   attach(file: File): Promise<string>
@@ -160,6 +183,30 @@ interface AppState {
  * it — everywhere else the UI asks and the store does, but boot has to open a
  * vault before any of that is on screen, so it hands the question back up.
  */
+/**
+ * The new name is a folder already.
+ *
+ * Its own type because the sheet says something specific about it and carries
+ * on asking, where any other failure is a notice and the end of the attempt.
+ * Merging two folders is a different operation with a different blast radius,
+ * and there is no undo here, so it is refused rather than guessed at.
+ */
+export class FolderTakenError extends Error {
+  constructor(readonly name: string) {
+    super(`A folder called ${name} is already here.`)
+    this.name = 'FolderTakenError'
+  }
+}
+
+/** What a folder rename did, for the notice that follows it. */
+export interface FolderRename {
+  /** The folder's new path. */
+  path: string
+  moved: number
+  /** Notes whose spelled-out links were brought up to date. */
+  rewritten: number
+}
+
 export type WhereAsker = (vaultName: string) => Promise<'folder' | 'app' | undefined>
 
 let askWhere: WhereAsker = async () => undefined
@@ -300,6 +347,34 @@ export const useApp = create<AppState>()((set, get) => {
   const linkingNotes = async (runtime: Runtime, path: string): Promise<string[]> => {
     await runtime.index.rebuild(get().files, (p) => runtime.store.read(p))
     return runtime.index.mentioning(path)
+  }
+
+  /**
+   * Moves files from under one folder to under another, one at a time.
+   *
+   * Write-then-delete per file rather than a rename call, because that is all
+   * the storage seam has — and it is what the sync engine already understands,
+   * since every store below it prunes the directories a delete leaves empty.
+   * A file that cannot be read is skipped rather than taking the whole rename
+   * down with it: half a folder moved is recoverable, and a thrown error
+   * halfway through would leave the same state with nothing said about it.
+   */
+  const moveFiles = async (
+    runtime: Runtime,
+    paths: string[],
+    from: string,
+    to: string,
+  ): Promise<void> => {
+    for (const path of paths) {
+      const target = movedPath(path, from, to)
+      if (target === path) continue
+      try {
+        await runtime.store.write(target, await runtime.store.read(path))
+      } catch {
+        continue
+      }
+      await runtime.store.delete(path)
+    }
   }
 
   const openFirstNote = async () => {
@@ -756,6 +831,100 @@ export const useApp = create<AppState>()((set, get) => {
       }
       scheduleSync()
       return target
+    },
+
+    async renameFolder(folder, name) {
+      const runtime = current()
+      if (!runtime) throw new Error('no vault is open')
+      const to = renamedFolder(folder, name.trim())
+      if (to === folder) return { path: folder, moved: 0, rewritten: 0 }
+
+      // What is on screen belongs under the new name, not whatever the
+      // debounced save last managed to store.
+      if (get().unsaved) await get().save()
+
+      const before = get().files
+      const moving = filesIn(before, folder)
+      if (moving.length === 0) throw new Error(`${folderName(folder)} is empty`)
+      // A case-only rename is the folder itself, so it is not a collision.
+      if (!sameNameDifferentCase(folder, to) && folderExists(before, to)) {
+        throw new FolderTakenError(name.trim())
+      }
+
+      // Worked out before anything moves: afterwards the old paths resolve
+      // elsewhere and there is no telling which links meant these files.
+      const mentioning = new Set<string>()
+      await runtime.index.rebuild(before, (path) => runtime.store.read(path))
+      for (const file of moving) {
+        for (const path of runtime.index.mentioning(file.path)) mentioning.add(path)
+      }
+
+      const moved = new Map(moving.map((file) => [file.path, movedPath(file.path, folder, to)]))
+
+      // Renaming `dnd` to `DND` writes each file over itself on a
+      // case-insensitive filesystem, and the delete that followed would then
+      // take the file just written. Going via a name that differs by more
+      // than case makes both halves unambiguous on either kind.
+      if (sameNameDifferentCase(folder, to)) {
+        const staging = stagingFolder(before, to)
+        await moveFiles(runtime, moving.map((file) => file.path), folder, staging)
+        await moveFiles(runtime, moving.map((file) => movedPath(file.path, folder, staging)), staging, to)
+      } else {
+        await moveFiles(runtime, moving.map((file) => file.path), folder, to)
+      }
+
+      let rewritten = 0
+      if (mentioning.size > 0) {
+        const resolve = buildResolver(before)
+        for (const path of mentioning) {
+          // A note inside the folder has moved; its own links are read at the
+          // path it is at now.
+          const at = moved.get(path) ?? path
+          let text: string
+          try {
+            text = decodeText(await runtime.store.read(at))
+          } catch {
+            // Not stored on this device. Its links keep the old folder, which
+            // is better than dropping the rename half-done to say so.
+            continue
+          }
+          const next = retargetMoved(text, { resolve, moved })
+          if (next.changed === 0) continue
+          await runtime.store.write(at, encodeText(next.text))
+          rewritten++
+        }
+      }
+
+      await refreshFiles()
+      const open = get().currentPath
+      if (open) {
+        const now = moved.get(open)
+        if (now) await get().open(now)
+        else if (mentioning.has(open)) await get().open(open)
+      }
+      scheduleSync()
+      return { path: to, moved: moving.length, rewritten }
+    },
+
+    async deleteFolder(folder) {
+      const runtime = current()
+      if (!runtime) return 0
+      const going = filesIn(get().files, folder)
+      if (going.length === 0) return 0
+
+      const open = get().currentPath
+      for (const file of going) await runtime.store.delete(file.path)
+      if (open && going.some((file) => file.path === open)) {
+        set({ currentPath: undefined, content: '', unsaved: false, backlinks: [] })
+      }
+      await refreshFiles()
+      scheduleSync()
+      return going.length
+    },
+
+    folderContents(folder) {
+      const files = filesIn(get().files, folder)
+      return { files: files.length, notes: files.filter((file) => isNote(file.path)).length }
     },
 
     async linksTo(path) {

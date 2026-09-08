@@ -1,9 +1,9 @@
 import { useCallback, useState } from 'react'
 import { isConflictCopy } from '../state/notes'
 import type { TreeNode } from '../state/tree'
-import { promptDelete } from './actions'
+import { folderMenu, promptDelete } from './actions'
 import { useSwipeToReveal } from './gestures'
-import { ChevronDown, ChevronRight, FileText, Trash } from './icons'
+import { ChevronDown, ChevronRight, Ellipsis, FileText, Trash } from './icons'
 
 /** How much of the delete button a swipe uncovers. */
 const REVEAL_PX = 92
@@ -38,18 +38,31 @@ export function NoteTree(props: TreeProps) {
       {nodes.map((node) =>
         node.kind === 'folder' ? (
           <div key={`d:${node.path}`} className="tree-folder">
-            <button
-              className="folder-row"
-              style={{ paddingLeft: `${0.5 + depth * INDENT_REM}rem` }}
-              onClick={() => onToggle(node.path)}
-              aria-expanded={!collapsed.has(node.path)}
-            >
-              <span className="folder-caret" aria-hidden="true">
-                {collapsed.has(node.path) ? <ChevronRight /> : <ChevronDown />}
-              </span>
-              <span className="folder-name">{node.name}</span>
-              {collapsed.has(node.path) && <span className="folder-count">{node.count}</span>}
-            </button>
+            {/* The row toggles and the ⋯ acts, so they are two buttons rather
+                than one with a hit test in it — a folder's actions must not be
+                reachable only by opening it. */}
+            <div className="folder-line">
+              <button
+                className="folder-row"
+                style={{ paddingLeft: `${0.5 + depth * INDENT_REM}rem` }}
+                onClick={() => onToggle(node.path)}
+                aria-expanded={!collapsed.has(node.path)}
+              >
+                <span className="folder-caret" aria-hidden="true">
+                  {collapsed.has(node.path) ? <ChevronRight /> : <ChevronDown />}
+                </span>
+                <span className="folder-name">{node.name}</span>
+                {collapsed.has(node.path) && <span className="folder-count">{node.count}</span>}
+              </button>
+              <button
+                className="icon-button folder-actions"
+                onClick={() => void folderMenu(node.path)}
+                aria-label={`Actions for ${node.name}`}
+                title={`Actions for ${node.name}`}
+              >
+                <Ellipsis />
+              </button>
+            </div>
             {!collapsed.has(node.path) && <NoteTree {...props} nodes={node.children} depth={depth + 1} />}
           </div>
         ) : (

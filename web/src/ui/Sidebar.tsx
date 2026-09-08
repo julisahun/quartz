@@ -7,7 +7,7 @@ import { tagMatches } from '../state/tags'
 import { buildTree, foldersTo } from '../state/tree'
 import { isLocal, vaultHint } from '../state/vaults'
 import { foldersSupported, isFolderBacked } from '../vault/folders'
-import { promptForgetFolder, promptNewNote, promptPromote } from './actions'
+import { promptForgetFolder, promptNewFolder, promptNewNote, promptPromote } from './actions'
 import { AppBar } from './AppBar'
 import { openMenu } from './dialogs'
 import { usePullToRefresh } from './gestures'
@@ -109,6 +109,8 @@ export function Sidebar({ onNavigate, inert }: Props) {
     const open = vaults.find((v) => v.id === currentVault)
     void openMenu(vaultName(), [
       ...(vaults.length > 1 ? [{ label: 'Switch vault…', run: vaultMenu }] : []),
+      // A folder at the root has no row of its own to be reached from.
+      { label: 'New folder…', run: () => void promptNewFolder() },
       // Not every build can open one: iOS and Firefox have no way to.
       ...(foldersSupported() ? [{ label: 'Open folder…', run: () => void openFolder() }] : []),
       ...(open && isLocal(open)

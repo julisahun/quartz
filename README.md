@@ -201,7 +201,9 @@ will scroll inside a frame, so there the card offers to open it whole, which
 iOS does perfectly well. Nothing is bundled to do any of this.
 
 The note list is the vault's folders, open by default; closing one is
-remembered per vault, and opening a note opens the folders it is in. The line
+remembered per vault, and opening a note opens the folders it is in. Each
+folder row carries a `⋯` — **rename**, **new folder inside**, **delete** —
+and `⌘P` has *New folder…* for one at the root. The line
 between the list and the note is a handle — drag it, or hold it and use the
 arrow keys, and double-click it to put it back at 17rem. **⌘P**
 (Ctrl-P away from a Mac) is the switcher: fuzzy over the whole path, matching
@@ -228,6 +230,21 @@ notes and the line each link is written on. The link map is built on the device
 from the local vault, through the same `[[link]]` resolution the editor follows,
 so backlinks are right offline and on a phone with no signal — and a note
 nothing points at shows no strip at all.
+
+Renaming a **folder** moves every file under it, attachments included, and is
+where the model shows through: nothing stores a folder — `dnd` exists because
+`dnd/Ossian.md` does — so a rename is a move of the files and a delete is a
+delete of them. Both stores with real directories prune the ones a delete
+leaves empty, so no directory is ever made or removed. Two things follow. A
+folder holding nothing cannot last, so **new folder** creates the folder and
+its first note together. And because no file's *name* changes, `[[Ossian]]`
+resolves exactly as it did and is left alone; only a link that spelled the
+folder out — `[[dnd/Ossian]]` — is brought up to date, which it needs to be
+because the basename fallback would otherwise leave it silently pointing at a
+path that is no longer there. A name already taken is refused rather than
+merged, and renaming `dnd` to `DND` goes through a staging name, because
+writing each file over itself on a case-insensitive filesystem and then
+deleting the old path would delete the file that had just been written.
 
 Renaming a note takes its links with it. When something links to the note, the
 rename asks first — "4 notes link to Pi setup" — and offers to update them or

@@ -141,7 +141,68 @@ export function retargetLinks(text: string, opts: Retarget): { text: string; cha
   return { text: lines.join('\n'), changed }
 }
 
-function rewrite(whole: string, raw: string, opts: Retarget): string {
+export interface RetargetMoved {
+  /** Resolves a raw link target against the vault as it stood before the move. */
+  resolve: (target: string) => string | undefined
+  /** Old path to new, for every file that moved. */
+  moved: Map<string, string>
+}
+
+/**
+ * Points path-shaped links at where their target moved to.
+ *
+ * This is the folder-rename half of {@link retargetLinks}, and it is narrower
+ * on purpose. A folder rename changes no file's name, so `[[Ossian]]` resolves
+ * by basename exactly as it did and is left completely alone. What does need
+ * rewriting is a link that spelled the folder out — `[[dnd/Ossian]]`.
+ *
+ * Such a link is usually not *broken* by the move, because the resolver falls
+ * back to the basename and still finds the note. It is worse than broken: it
+ * reads as a path that no longer exists, and where two notes share a basename
+ * the fallback can land on the other one. So the text is brought back in line
+ * with where the file actually is.
+ *
+ * One pass per note however many files moved, since a folder rename moves as
+ * many files as the folder holds.
+ */
+export function retargetMoved(
+  text: string,
+  opts: RetargetMoved,
+): { text: string; changed: number } {
+  let changed = 0
+
+  const lines = scan(text).map(({ line, scannable }) => {
+    if (scannable === undefined) return line
+
+    let out = ''
+    let last = 0
+    WIKILINK.lastIndex = 0
+    for (let m = WIKILINK.exec(scannable); m; m = WIKILINK.exec(scannable)) {
+      const written = writtenTarget(m[1])
+      // A bare name still resolves to the same file, so there is nothing to
+      // say. Only a link that named the folder can be out of date.
+      if (!written.includes('/')) continue
+      const to = opts.moved.get(opts.resolve(m[1]) ?? '')
+      if (to === undefined) continue
+      out += line.slice(last, m.index) + rewrite(m[0], m[1], { to, keepPath: true })
+      last = m.index + m[0].length
+      changed++
+    }
+    return out + line.slice(last)
+  })
+
+  return { text: lines.join('\n'), changed }
+}
+
+/** The target as written, without its `#heading` or `|display text`. */
+function writtenTarget(raw: string): string {
+  const pipe = raw.indexOf('|')
+  const linkPart = pipe < 0 ? raw : raw.slice(0, pipe)
+  const hash = linkPart.indexOf('#')
+  return (hash < 0 ? linkPart : linkPart.slice(0, hash)).trim()
+}
+
+function rewrite(whole: string, raw: string, opts: Shape): string {
   const bang = whole.startsWith('!') ? '!' : ''
   const pipe = raw.indexOf('|')
   const linkPart = pipe < 0 ? raw : raw.slice(0, pipe)
@@ -154,6 +215,20 @@ function rewrite(whole: string, raw: string, opts: Retarget): string {
   return `${bang}[[${shaped(written, opts)}${heading}${display}]]`
 }
 
+/** What `rewrite` needs of a retarget: where the file went, and how to spell it. */
+interface Shape {
+  to: string
+  /**
+   * Forces the full path. A folder rename leaves every basename alone, so a
+   * link that spelled the folder out is the only kind being rewritten and it
+   * stays spelled out — shortening it to a bare name there would be a
+   * reformat, not a move.
+   */
+  keepPath?: boolean
+  /** Whether `[[Basename]]` on its own still lands on `to`. */
+  shortNameWorks?: boolean
+}
+
 /**
  * The new target, written the way the old one was.
  *
@@ -161,9 +236,9 @@ function rewrite(whole: string, raw: string, opts: Retarget): string {
  * with another note, `[[Name]]` would resolve somewhere else, so the link is
  * widened to the full path rather than quietly pointing at a stranger.
  */
-function shaped(written: string, opts: Retarget): string {
+function shaped(written: string, opts: Shape): string {
   const keepExtension = /\.md$/i.test(written)
-  const short = !written.includes('/') && opts.shortNameWorks
+  const short = !opts.keepPath && !written.includes('/') && opts.shortNameWorks === true
   const target = short ? opts.to.slice(opts.to.lastIndexOf('/') + 1) : opts.to
   return keepExtension ? target : target.replace(/\.md$/i, '')
 }
