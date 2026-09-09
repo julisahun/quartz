@@ -193,12 +193,23 @@ still an ordinary note. Tables render their cells' markup, links included,
 which in a vault where half a table is `[[wikilinks]]` is the difference
 between a table and a wall of brackets.
 
-PDFs are listed in the tree beside the notes and open in the pane, through the
-browser's own viewer — the vault's handouts are half of why its folders exist.
-`![[handout.pdf]]` renders as a card rather than a page inside a page, and
-`[[handout.pdf]]` finds the file wherever it is filed. iOS has no viewer it
-will scroll inside a frame, so there the card offers to open it whole, which
-iOS does perfectly well. Nothing is bundled to do any of this.
+PDFs and images are listed in the tree beside the notes and open in the pane —
+the vault's handouts and maps are half of why its folders exist. A PDF goes
+through the browser's own viewer; `![[handout.pdf]]` renders as a card rather
+than a page inside a page, and `[[handout.pdf]]` finds the file wherever it is
+filed. iOS has no viewer it will scroll inside a frame, so there the card
+offers to open it whole, which iOS does perfectly well.
+
+An image — `png`, `jpeg`, `gif`, `svg`, `webp`, `avif`, `bmp`, the same set the
+editor inlines — opens fitted to the pane, and a tap gives it its own size with
+the box left to scroll, because a scanned page is illegible shrunk into a pane.
+The rule is that the list offers what the app can display, with no exception to
+remember, so the screenshots `attach()` writes are listed too, under
+`attachments/` — one folder, and closing it is remembered per vault. A file
+that *cannot* be displayed, like an Obsidian settings file, still belongs to
+the note that references it and stays out of the list.
+
+Nothing is bundled to do any of this.
 
 The note list is the vault's folders, open by default; closing one is
 remembered per vault, and opening a note opens the folders it is in. Each

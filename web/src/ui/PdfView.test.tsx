@@ -45,8 +45,8 @@ afterEach(() => {
 describe('PdfView', () => {
   it('shows the file in a frame, named and weighed', async () => {
     const dom = await render()
-    expect(dom.querySelector('.pdf-name')?.textContent).toBe('talasia-carta.pdf')
-    expect(dom.querySelector('.pdf-size')?.textContent).toBe('1.8 MB')
+    expect(dom.querySelector('.fileview-name')?.textContent).toBe('talasia-carta.pdf')
+    expect(dom.querySelector('.fileview-size')?.textContent).toBe('1.8 MB')
     expect(dom.querySelector('iframe.pdf-frame')?.getAttribute('src')).toBe('blob:quartz/1')
   })
 

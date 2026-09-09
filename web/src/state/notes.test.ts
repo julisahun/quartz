@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  fileKind,
   humanSize,
   isConflictCopy,
+  isImage,
   isNote,
   isOpenable,
   isPdf,
@@ -98,21 +100,45 @@ describe('files that are not notes', () => {
     expect(isNote('mundo/talasia-carta.pdf')).toBe(false)
   })
 
-  it('offers notes and PDFs, and nothing else', () => {
-    expect(isOpenable('a/note.md')).toBe(true)
-    expect(isOpenable('mundo/carta.pdf')).toBe(true)
-    expect(isOpenable('attachments/20260906-shot.png')).toBe(false)
-    expect(isOpenable('.obsidian/app.json')).toBe(false)
+  it('knows an image, over every type the editor inlines', () => {
+    for (const ext of ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'avif', 'bmp']) {
+      expect(isImage(`mundo/mapa.${ext}`)).toBe(true)
+      expect(isImage(`mundo/mapa.${ext.toUpperCase()}`)).toBe(true)
+    }
+    expect(isImage('notes/png.md')).toBe(false)
+    expect(isImage('a/raw.heic')).toBe(false)
   })
 
-  it('keeps a PDFs extension in its name — it is part of the name', () => {
+  it('offers notes, PDFs and images, and nothing else', () => {
+    expect(isOpenable('a/note.md')).toBe(true)
+    expect(isOpenable('mundo/carta.pdf')).toBe(true)
+    // Listed wherever it is filed, attachments/ included: the list is what can
+    // be opened, with no exception to remember.
+    expect(isOpenable('attachments/20260906-shot.png')).toBe(true)
+    expect(isOpenable('mundo/mapa.jpeg')).toBe(true)
+    expect(isOpenable('.obsidian/app.json')).toBe(false)
+    expect(isOpenable('backup/vault.zip')).toBe(false)
+  })
+
+  it('says which pane a file opens in', () => {
+    expect(fileKind('a/note.md')).toBe('note')
+    expect(fileKind('mundo/carta.pdf')).toBe('pdf')
+    expect(fileKind('mundo/mapa.PNG')).toBe('image')
+    expect(fileKind('.obsidian/app.json')).toBe('other')
+  })
+
+  it('keeps a non-notes extension in its name — it is part of the name', () => {
     expect(noteTitle('mundo/talasia-carta.pdf')).toBe('talasia-carta.pdf')
+    expect(noteTitle('mundo/mapa.png')).toBe('mapa.png')
     expect(noteTitle('objects/acero.md')).toBe('acero')
   })
 
   it('names the type a browser needs to be told', () => {
     expect(mimeType('a/carta.pdf')).toBe('application/pdf')
     expect(mimeType('a/shot.PNG')).toBe('image/png')
+    expect(mimeType('a/photo.jpeg')).toBe('image/jpeg')
+    // Every type isImage() accepts has one, or the <img> gets a bare blob.
+    expect(mimeType('a/old.bmp')).toBe('image/bmp')
     expect(mimeType('a/whatever.bin')).toBe('application/octet-stream')
   })
 

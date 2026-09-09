@@ -9,16 +9,52 @@ export function isPdf(path: string): boolean {
 }
 
 /**
- * What the app will put on screen, and so what the note list, the tree and ⌘P
- * offer: notes, and the PDFs sitting beside them.
+ * The image types the app will put on screen.
  *
- * Everything else in a vault is an attachment — a pasted screenshot, an
- * Obsidian settings file — and belongs to the note that embeds it rather than
- * to the list. A vault's own handouts are not that: they are why half the
- * folders exist.
+ * Exactly the set the editor inlines, so a `.webp` filed beside a `.png` is
+ * not mysteriously an attachment while its neighbour is a file. One list, kept
+ * here, because the editor and the note list have to agree about it.
+ */
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|svg|webp|avif|bmp)$/i
+
+export function isImage(path: string): boolean {
+  return IMAGE_EXTENSIONS.test(path)
+}
+
+/**
+ * What the app will put on screen, and so what the note list, the tree and ⌘P
+ * offer: notes, and the PDFs and images sitting beside them.
+ *
+ * Images were an attachment for a long time — something belonging to the note
+ * that embeds it rather than to the list. That was wrong for the same reason
+ * it was wrong for PDFs: a vault holds maps, scans and photographs that no
+ * note happens to embed, and a file the app can display but will not list is a
+ * file you have to leave for Obsidian. The tree lists what can be opened, and
+ * that is now the rule with no exception to remember.
+ *
+ * The cost is that the screenshots `attach()` writes land in the list too,
+ * under `attachments/` — one folder, and closing it is remembered per vault.
+ *
+ * What is left over — an Obsidian settings file, a `.zip` — still belongs to
+ * the note that references it.
  */
 export function isOpenable(path: string): boolean {
-  return isNote(path) || isPdf(path)
+  return isNote(path) || isPdf(path) || isImage(path)
+}
+
+/**
+ * Which of the panes a file opens in, and which icon the list gives it.
+ *
+ * `other` is a file the app can store and sync but not display; it is not
+ * listed, and is reachable only by following a link that names it.
+ */
+export type FileKind = 'note' | 'pdf' | 'image' | 'other'
+
+export function fileKind(path: string): FileKind {
+  if (isNote(path)) return 'note'
+  if (isPdf(path)) return 'pdf'
+  if (isImage(path)) return 'image'
+  return 'other'
 }
 
 /**
@@ -45,6 +81,8 @@ export function mimeType(path: string): string {
       return 'image/webp'
     case 'avif':
       return 'image/avif'
+    case 'bmp':
+      return 'image/bmp'
     case 'md':
       return 'text/markdown; charset=utf-8'
     default:
@@ -65,7 +103,7 @@ export function humanSize(bytes: number): string {
   return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`
 }
 
-/** A note's name, without its extension. A PDF keeps its `.pdf`: it is part of the name. */
+/** A note's name, without its extension. Anything else keeps its own: `carta.pdf` is the name. */
 export function noteTitle(path: string): string {
   const base = path.slice(path.lastIndexOf('/') + 1)
   return base.replace(/\.md$/i, '')

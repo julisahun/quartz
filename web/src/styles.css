@@ -843,9 +843,9 @@ html.resizing * {
   text-align: center;
 }
 
-/* ---------- pdf ---------- */
+/* ---------- a file in the pane: pdf, image ---------- */
 
-.pdf {
+.fileview {
   display: flex;
   flex: 1;
   min-height: 0;
@@ -853,7 +853,7 @@ html.resizing * {
   background: var(--bg);
 }
 
-.pdf-head {
+.fileview-head {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -862,12 +862,12 @@ html.resizing * {
   border-bottom: 1px solid var(--border);
 }
 
-.pdf-icon {
+.fileview-icon {
   display: inline-flex;
   color: var(--faint);
 }
 
-.pdf-name {
+.fileview-name {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -876,7 +876,7 @@ html.resizing * {
   font-size: 0.92rem;
 }
 
-.pdf-size {
+.fileview-size {
   color: var(--faint);
   font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
@@ -899,6 +899,43 @@ html.resizing * {
   gap: 0.9rem;
   padding: 1.5rem;
   text-align: center;
+}
+
+/*
+ * Fitted, the image is centred and the box does not scroll. At its own size
+ * the box scrolls in both directions and the image stops being constrained —
+ * a scanned page is illegible shrunk into a pane, which is the whole reason
+ * the other half of the toggle exists.
+ */
+.image-box {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 0.7rem;
+  background: var(--code-bg);
+}
+
+.image-full {
+  max-width: 100%;
+  max-height: 100%;
+  /* A transparent PNG over the pane's own background, not over nothing. */
+  cursor: zoom-in;
+}
+
+.image-box.actual {
+  /* Centred while it is smaller than the box, scrolled from the top-left once
+   * it is bigger — which `center` alone would clip on the leading edge. */
+  align-items: safe center;
+  justify-content: safe center;
+}
+
+.image-box.actual .image-full {
+  max-width: none;
+  max-height: none;
+  cursor: zoom-out;
 }
 
 /* ---------- backlinks ---------- */

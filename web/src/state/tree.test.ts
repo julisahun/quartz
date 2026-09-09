@@ -39,14 +39,28 @@ describe('buildTree', () => {
     expect((a.children[0] as TreeFolder).count).toBe(2)
   })
 
-  it('lists PDFs beside the notes, and leaves other attachments out', () => {
-    // The handouts live in the vault's own folders, not in attachments/, and
-    // are half the reason those folders exist.
-    const tree = buildTree(vault('mundo/talasia.md', 'mundo/carta.pdf', 'attachments/logo.png'))
-    expect(outline(tree)).toEqual(['mundo/ (2)', '  carta.pdf', '  talasia'])
+  it('lists PDFs and images beside the notes, and leaves the rest out', () => {
+    // The handouts and the maps live in the vault's own folders and are half
+    // the reason those folders exist. A file the app cannot display is not
+    // listed at all, however it is filed.
+    const tree = buildTree(
+      vault('mundo/talasia.md', 'mundo/carta.pdf', 'mundo/mapa.png', 'mundo/notes.zip'),
+    )
+    expect(outline(tree)).toEqual(['mundo/ (3)', '  carta.pdf', '  mapa.png', '  talasia'])
 
     const mundo = tree[0] as TreeFolder
-    expect(mundo.children.map((c) => c.kind === 'file' && c.pdf)).toEqual([true, false])
+    expect(mundo.children.map((c) => c.kind === 'file' && c.fileKind)).toEqual([
+      'pdf',
+      'image',
+      'note',
+    ])
+  })
+
+  it('lists the screenshots attach() writes, which is what listing images costs', () => {
+    // Deliberate: the tree lists what can be opened, with no exception to
+    // remember. attachments/ is one folder, and closing it is remembered.
+    const tree = buildTree(vault('Inbox.md', 'attachments/20260906-shot.png'))
+    expect(outline(tree)).toEqual(['attachments/ (1)', '  20260906-shot.png', 'Inbox'])
   })
 })
 

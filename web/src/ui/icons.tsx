@@ -146,6 +146,14 @@ export const FileText = () => (
   </Svg>
 )
 
+export const Photo = () => (
+  <Svg>
+    <rect x="2" y="3" width="12" height="10" rx="1" />
+    <circle cx="6" cy="6.6" r="1.1" />
+    <path d="M2.4 11.2 5.6 8.4l2.5 2.2 2.1-1.9 3.4 3" />
+  </Svg>
+)
+
 export const External = () => (
   <Svg>
     <path d="M9.5 2.5H13v3.5M12.8 2.7 7.5 8" />

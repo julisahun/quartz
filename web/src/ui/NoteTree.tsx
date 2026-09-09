@@ -1,9 +1,9 @@
 import { useCallback, useState } from 'react'
-import { isConflictCopy } from '../state/notes'
+import { isConflictCopy, type FileKind } from '../state/notes'
 import type { TreeNode } from '../state/tree'
 import { folderMenu, promptDelete } from './actions'
 import { useSwipeToReveal } from './gestures'
-import { ChevronDown, ChevronRight, Ellipsis, FileText, Trash } from './icons'
+import { ChevronDown, ChevronRight, Ellipsis, FileText, Photo, Trash } from './icons'
 
 /** How much of the delete button a swipe uncovers. */
 const REVEAL_PX = 92
@@ -71,7 +71,7 @@ export function NoteTree(props: TreeProps) {
             path={node.path}
             title={node.title}
             indent={depth}
-            pdf={node.pdf}
+            fileKind={node.fileKind}
             conflict={isConflictCopy(node.path)}
             active={node.path === props.currentPath}
             swipeable={props.swipeable}
@@ -85,13 +85,24 @@ export function NoteTree(props: TreeProps) {
   )
 }
 
+/** What a non-note row calls itself, to a reader and to a screen reader. */
+const KIND_LABEL: Record<FileKind, string> = {
+  note: 'Note',
+  pdf: 'PDF',
+  image: 'Image',
+  other: 'Attachment',
+}
+
 interface RowProps {
   path: string
   title: string
   /** Where in the tree it sits; search results and tag hits sit at the margin. */
   indent?: number
-  /** A PDF is listed beside the notes, and marked so it is not mistaken for one. */
-  pdf?: boolean
+  /**
+   * A PDF or an image is listed beside the notes, and carries an icon so it is
+   * not mistaken for one. A note is the default and gets none.
+   */
+  fileKind?: FileKind
   /** The folder it is in, worth showing when the rows are not in one. */
   folder?: string
   snippet?: string
@@ -107,7 +118,7 @@ export function NoteRow({
   path,
   title,
   indent = 0,
-  pdf,
+  fileKind = 'note',
   folder,
   snippet,
   conflict,
@@ -139,9 +150,9 @@ export function NoteRow({
         style={indent ? { paddingLeft: `${0.6 + indent * INDENT_REM}rem` } : undefined}
         onClick={() => (open ? onOpenChange(false) : onChoose(path))}
       >
-        {pdf && (
-          <span className="note-icon" aria-label="PDF" title="PDF">
-            <FileText />
+        {fileKind !== 'note' && (
+          <span className="note-icon" aria-label={KIND_LABEL[fileKind]} title={KIND_LABEL[fileKind]}>
+            {fileKind === 'image' ? <Photo /> : <FileText />}
           </span>
         )}
         <span className="note-text">

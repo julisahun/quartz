@@ -2,7 +2,7 @@ import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { useEffect, useRef, useState } from 'react'
 import { editorExtensions } from '../editor/setup'
-import { resolveWikilink, pathForTitle, isNote, isPdf, mimeType, noteTitle } from '../state/notes'
+import { resolveWikilink, pathForTitle, fileKind, isNote, mimeType, noteTitle } from '../state/notes'
 import { useApp } from '../state/store'
 import { promptDelete, promptRename } from './actions'
 import { AppBar } from './AppBar'
@@ -11,6 +11,7 @@ import { openMenu } from './dialogs'
 import { EditorToolbar } from './EditorToolbar'
 import { ChevronLeft, Ellipsis } from './icons'
 import { useIsPhone } from './media'
+import { ImageView } from './ImageView'
 import { PdfView } from './PdfView'
 import { Slot } from './Slot'
 
@@ -111,7 +112,7 @@ export function NoteEditor({ livePreview, onToggleLivePreview, onBack }: Props) 
   function noteMenu() {
     if (!currentPath) return
     void openMenu(noteTitle(currentPath), [
-      // Nothing to preview in a PDF, and nothing to write in it either.
+      // Nothing to preview in a PDF or an image, and nothing to write in one either.
       ...(isNote(currentPath)
         ? [
             {
@@ -131,15 +132,18 @@ export function NoteEditor({ livePreview, onToggleLivePreview, onBack }: Props) 
   }
 
   let body
+  const kind = currentPath ? fileKind(currentPath) : undefined
   if (!currentPath) {
     body = (
       <div className="editor-empty">
         <p>Pick a note, or make one.</p>
       </div>
     )
-  } else if (isPdf(currentPath)) {
+  } else if (kind === 'pdf') {
     body = <PdfView path={currentPath} />
-  } else if (!isNote(currentPath)) {
+  } else if (kind === 'image') {
+    body = <ImageView path={currentPath} />
+  } else if (kind === 'other') {
     body = (
       <div className="editor-empty">
         <p>{currentPath} is an attachment, not a note.</p>

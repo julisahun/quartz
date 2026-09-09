@@ -19,9 +19,10 @@ import type { FileMeta } from '../vault/types'
 /**
  * Every file under `folder`, at any depth — attachments included.
  *
- * Not `isOpenable`: the tree lists notes and PDFs, but a folder also holds the
- * screenshots pasted into them, and a rename that moved only what was on
- * screen would leave those behind pointing at nothing.
+ * Not `isOpenable`: the tree lists what can be displayed, but a folder also
+ * holds what cannot be — an Obsidian settings file, a `.zip` — and a rename
+ * that moved only what was on screen would leave those behind pointing at
+ * nothing.
  */
 export function filesIn(files: FileMeta[], folder: string): FileMeta[] {
   const prefix = `${folder}/`

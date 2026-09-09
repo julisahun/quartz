@@ -42,14 +42,23 @@ describe('rankNotes', () => {
 
   it('finds nothing when a letter is missing, and skips attachments', () => {
     expect(paths('zzz', vault('acero.md'))).toEqual([])
-    expect(paths('logo', vault('attachments/logo.png'))).toEqual([])
+    expect(paths('settings', vault('.obsidian/app.json'))).toEqual([])
   })
 
   it('finds a PDF by name, and says that is what it is', () => {
     const files = vault('runs/last/players/abraxas/abraxas-guia.pdf', 'pnj/abraxas.md')
     const [first] = rankNotes('abraxasguia', files)
     expect(first.path).toBe('runs/last/players/abraxas/abraxas-guia.pdf')
-    expect(first.pdf).toBe(true)
+    expect(first.kind).toBe('pdf')
     expect(rankNotes('abraxas', files).every((h) => h.path.includes('abraxas'))).toBe(true)
+  })
+
+  it('finds an image by name too — a map is looked up like a handout', () => {
+    const files = vault('mundo/talasia/mapa-costa.png', 'mundo/talasia.md')
+    const [first] = rankNotes('mapacosta', files)
+    expect(first.path).toBe('mundo/talasia/mapa-costa.png')
+    expect(first.kind).toBe('image')
+    // The extension is part of the name, so it survives into the title.
+    expect(first.title).toBe('mapa-costa.png')
   })
 })

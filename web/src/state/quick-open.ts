@@ -7,18 +7,19 @@
  * a search: it never opens a file to look inside it, which is what keeps it
  * instant and what keeps it different from the box in the sidebar.
  *
- * It offers PDFs as well as notes, since a handout is looked up by its name in
- * exactly the same way. Nothing here reads what is inside either of them.
+ * It offers PDFs and images as well as notes, since a handout or a map is
+ * looked up by its name in exactly the same way. Nothing here reads what is
+ * inside any of them.
  */
 
 import type { FileMeta } from '../vault/types'
-import { folderOf, isOpenable, isPdf, noteTitle } from './notes'
+import { fileKind, folderOf, isOpenable, noteTitle, type FileKind } from './notes'
 
 export interface QuickHit {
   path: string
   title: string
   folder: string
-  pdf: boolean
+  kind: FileKind
   /** Offsets into `path` that the query matched, for highlighting. */
   matches: number[]
 }
@@ -56,7 +57,7 @@ export function rankNotes(query: string, files: FileMeta[], limit = DEFAULT_LIMI
 }
 
 function hit(path: string, matches: number[]): QuickHit {
-  return { path, title: noteTitle(path), folder: folderOf(path), pdf: isPdf(path), matches }
+  return { path, title: noteTitle(path), folder: folderOf(path), kind: fileKind(path), matches }
 }
 
 /** What a note scores: the better of matching its name and matching its path. */

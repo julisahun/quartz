@@ -648,3 +648,21 @@ else from writing one, and worth more than any of the above.
 - **A rename saves the buffer first.** It used to copy whatever the debounced
   save had last managed to store, so renaming mid-sentence dropped the last
   half-second of typing. What is on screen is what ends up under the new name.
+
+## Images are files, not attachments (2026-09-09)
+
+Images were openable only as an embed inside a note: `![[mapa.png]]` rendered,
+but the file itself was absent from the tree and from ⌘P, and following
+`[[mapa.png]]` landed on "mapa.png is an attachment, not a note". The argument
+for that was that a pasted screenshot belongs to the note that embeds it.
+
+| Question | Decision | Notes |
+|---|---|---|
+| Are images listed like PDFs? | **Yes** | It was wrong for the same reason it was wrong for PDFs: a vault holds maps, scans and photographs that no note happens to embed, and a file the app can display but will not list is a file you have to leave for Obsidian. |
+| Which extensions? | **Everything the editor inlines** | `png`, `jpe?g`, `gif`, `svg`, `webp`, `avif`, `bmp`. One list, in `state/notes.ts`, which live preview now imports rather than keeping its own copy — a `.webp` that is an attachment while the `.png` beside it is a file is a bug nobody can explain. |
+| Do the pasted screenshots show up too? | **Yes, deliberately** | The list offers what the app can display, with no exception to remember. `attach()` writes to `attachments/`, so it is one folder, and closing it is remembered per vault. Excluding it by name was the alternative and is a special case that would have to be explained every time someone filed an image there on purpose. |
+
+`isOpenable` is still the single seam — the tree, ⌘P and the pane all ask it —
+so this was one function, a viewer, and an icon. What is left over (an Obsidian
+settings file, a `.zip`) is still an attachment and still belongs to the note
+that references it.

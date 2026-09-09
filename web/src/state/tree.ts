@@ -7,11 +7,12 @@
  * tree they came from; what is open and what is closed is the sidebar's
  * business, not this file's.
  *
- * It lists what the app can show: notes, and the PDFs filed beside them.
+ * It lists what the app can show: notes, and the PDFs and images filed
+ * beside them.
  */
 
 import type { FileMeta } from '../vault/types'
-import { isOpenable, isPdf, noteTitle } from './notes'
+import { fileKind, isOpenable, noteTitle, type FileKind } from './notes'
 
 export interface TreeFolder {
   kind: 'folder'
@@ -27,8 +28,8 @@ export interface TreeFile {
   kind: 'file'
   path: string
   title: string
-  /** A PDF is listed beside the notes but is not one, and says so. */
-  pdf: boolean
+  /** A PDF or an image is listed beside the notes but is not one, and says so. */
+  fileKind: FileKind
 }
 
 export type TreeNode = TreeFolder | TreeFile
@@ -52,7 +53,7 @@ export function buildTree(files: FileMeta[]): TreeNode[] {
       kind: 'file',
       path: file.path,
       title: noteTitle(file.path),
-      pdf: isPdf(file.path),
+      fileKind: fileKind(file.path),
     })
   }
 

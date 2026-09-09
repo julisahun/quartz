@@ -3,7 +3,7 @@ import { StateField, type EditorState, type Extension, type Range } from '@codem
 import { Decoration, EditorView, type DecorationSet } from '@codemirror/view'
 import type { SyntaxNodeRef } from '@lezer/common'
 import { isFrontmatterFence } from '../state/frontmatter'
-import { isPdf } from '../state/notes'
+import { isImage, isPdf } from '../state/notes'
 import {
   BulletWidget,
   CheckboxWidget,
@@ -22,8 +22,6 @@ export interface LivePreviewConfig {
   openUrl: (url: string) => void
   openTag: (tag: string) => void
 }
-
-const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|svg|webp|avif|bmp)$/i
 
 /**
  * Live preview: markup is hidden and replaced with what it means, except on
@@ -215,7 +213,7 @@ function build(state: EditorState, config: LivePreviewConfig): Built {
       if (lineActive(node.from)) return
       const raw = state.sliceDoc(node.from + 3, node.to - 2)
       const { target, display } = parseWikilinkTarget(raw)
-      if (IMAGE_EXTENSIONS.test(target)) {
+      if (isImage(target)) {
         replace(node.from, node.to, {
           widget: new ImageWidget(target, display ?? target, config.resolveAsset),
         })
