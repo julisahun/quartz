@@ -1,4 +1,4 @@
-name: Deploy Quartz to the Pi
+name: Deploy Quartz to home-lab
 
 on:
   workflow_dispatch:
@@ -10,16 +10,16 @@ on:
       - .github/workflows/deploy.yml
 
 concurrency:
-  group: pi-quartz-deploy
+  group: homelab-quartz-deploy
   cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      PI_HOST: home-lab          # MagicDNS name of home-lab (all services moved here 2026-09-20)
-      PI_USER: sigint
-      PI_DIR: /opt/quartz
+      DEPLOY_HOST: home-lab   # MagicDNS name of the host running the services
+      DEPLOY_USER: sigint
+      DEPLOY_DIR: /opt/quartz
       SERVICE: quartz
 
     steps:
@@ -48,7 +48,7 @@ jobs:
           npm test
           npm run build
 
-      - name: Cross-compile for the Pi (linux/arm64)
+      - name: Cross-compile for home-lab (linux/amd64)
         working-directory: server
         env:
           GOOS: linux
@@ -68,7 +68,7 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
-      - name: Check the tailnet path to the Pi
+      - name: Check the tailnet path to home-lab
         run: |
           # Two different failures look identical from the rsync step, which
           # just dies with "Could not resolve hostname". Tell them apart here.
@@ -77,29 +77,29 @@ jobs:
             tailscale status || true
             exit 1
           fi
-          if ! tailscale ip -4 "$PI_HOST" >/dev/null 2>&1; then
-            echo "::error::joined the tailnet but $PI_HOST is not visible — check the machine is up, tagged tag:server, and that the ACL allows tag:ci to reach it"
+          if ! tailscale ip -4 "$DEPLOY_HOST" >/dev/null 2>&1; then
+            echo "::error::joined the tailnet but $DEPLOY_HOST is not visible — check the machine is up, tagged tag:server, and that the ACL allows tag:ci to reach it"
             tailscale status || true
             exit 1
           fi
-          echo "$PI_HOST is $(tailscale ip -4 "$PI_HOST")"
+          echo "$DEPLOY_HOST is $(tailscale ip -4 "$DEPLOY_HOST")"
 
       - name: Ship the binaries
         run: |
           rsync -az --chmod=F0755 \
             -e "ssh -o StrictHostKeyChecking=accept-new" \
             bin/quartz bin/quartz-admin bin/quartz-passwd bin/quartzctl \
-            "$PI_USER@$PI_HOST:$PI_DIR/"
+            "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/"
 
       - name: Ship the PWA
         run: |
           rsync -a --delete \
             -e "ssh -o StrictHostKeyChecking=accept-new" \
-            web/dist/ "$PI_USER@$PI_HOST:$PI_DIR/web/"
+            web/dist/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/web/"
 
       - name: Restart and smoke test
         run: |
-          ssh -o StrictHostKeyChecking=accept-new "$PI_USER@$PI_HOST" bash -s <<'REMOTE'
+          ssh -o StrictHostKeyChecking=accept-new "$DEPLOY_USER@$DEPLOY_HOST" bash -s <<'REMOTE'
           set -euo pipefail
           sudo systemctl restart quartz
           for i in $(seq 1 15); do
