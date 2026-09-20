@@ -17,7 +17,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      PI_HOST: sigint          # Tailscale MagicDNS name of the Pi
+      PI_HOST: home-lab          # MagicDNS name of home-lab (all services moved here 2026-09-20)
       PI_USER: sigint
       PI_DIR: /opt/quartz
       SERVICE: quartz
@@ -52,7 +52,7 @@ jobs:
         working-directory: server
         env:
           GOOS: linux
-          GOARCH: arm64
+          GOARCH: amd64
           CGO_ENABLED: "0"
         run: |
           mkdir -p ../bin
@@ -116,6 +116,6 @@ jobs:
             sleep 1
           done
           echo "Quartz did not come up" >&2
-          sudo journalctl -u quartz -n 40 --no-pager >&2
+          sudo systemctl status quartz --no-pager -l >&2 || true
           exit 1
           REMOTE
