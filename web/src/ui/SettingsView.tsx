@@ -146,7 +146,7 @@ function Device() {
       {desktop && (
         <Row
           label="Server"
-          value={server || 'notes.sigint-pm.uk'}
+          value={server || 'notes.sigint.page'}
           hint="Read at start-up, so a change takes effect next launch."
           action={{ label: 'Change…', run: () => void repoint() }}
         />

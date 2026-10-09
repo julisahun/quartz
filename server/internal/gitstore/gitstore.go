@@ -151,7 +151,7 @@ func (s *Store) run(args ...string) (string, error) {
 	full := append([]string{
 		"-C", s.dir,
 		"-c", "user.name=quartz",
-		"-c", "user.email=quartz@sigint-pm.uk",
+		"-c", "user.email=quartz@sigint.page",
 		"-c", "commit.gpgsign=false",
 	}, args...)
 	cmd := exec.CommandContext(ctx, "git", full...)

@@ -3,7 +3,7 @@
 // It is the milestone-1 client: enough to prove the sync algorithm end to end
 // with no UI written, and useful afterwards as a headless mirror.
 //
-//	quartzctl login  -server https://notes.sigint-pm.uk -user juli -dir ./vault
+//	quartzctl login  -server https://notes.sigint.page -user juli -dir ./vault
 //	quartzctl sync   -dir ./vault
 //	quartzctl watch  -dir ./vault -interval 15s
 //	quartzctl status -dir ./vault
