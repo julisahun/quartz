@@ -4,7 +4,7 @@ import { forceParsing, syntaxTree } from '@codemirror/language'
 import { EditorSelection, EditorState, type Extension, type StateField } from '@codemirror/state'
 import { EditorView, type DecorationSet } from '@codemirror/view'
 import { afterEach, describe, expect, it } from 'vitest'
-import { livePreview } from './live-preview'
+import { focusChanged, livePreview } from './live-preview'
 import { editorExtensions } from './setup'
 import { TableWidget } from './widgets'
 
@@ -17,9 +17,10 @@ afterEach(() => {
 
 /**
  * Renders a document and returns the text the reader actually sees.
- * The cursor defaults to the end, i.e. away from whatever is being asserted.
+ * The cursor defaults to the end, i.e. away from whatever is being asserted,
+ * and the editor is focused, so the cursor's line is the one being edited.
  */
-function render(doc: string, cursor = doc.length): string {
+function render(doc: string, cursor = doc.length, focused = true): string {
   const opened: string[] = []
   view = new EditorView({
     state: EditorState.create({
@@ -39,6 +40,7 @@ function render(doc: string, cursor = doc.length): string {
     }),
     parent: document.body,
   })
+  if (focused) view.dispatch({ effects: focusChanged.of(true) })
   return view.dom.textContent ?? ''
 }
 
@@ -55,6 +57,25 @@ describe('live preview', () => {
     // The cursor sits at the end of the document, away from the heading.
     expect(render('# Title\n\nbody', 10)).toContain('Title')
     expect(render('# Title\n\nbody', 10)).not.toContain('# Title')
+  })
+
+  it('renders every line of a note nobody is editing, the first included', () => {
+    // A note opens with its selection at 0 and no focus. That used to leave
+    // the first line raw, because the cursor alone was taken for editing.
+    const text = render('# Title\n\nbody', 0, false)
+    expect(text).toContain('Title')
+    expect(text).not.toContain('# Title')
+  })
+
+  it('follows focus: raw while clicked into, rendered once left', async () => {
+    render('# Title\n\nbody', 0, false)
+    expect(view!.dom.textContent).not.toContain('# Title')
+    view!.focus()
+    await new Promise((settle) => setTimeout(settle, 50))
+    expect(view!.dom.textContent).toContain('# Title')
+    view!.contentDOM.blur()
+    await new Promise((settle) => setTimeout(settle, 50))
+    expect(view!.dom.textContent).not.toContain('# Title')
   })
 
   it('brings the markup back on the line being edited', () => {

@@ -1,5 +1,5 @@
 import { syntaxTree } from '@codemirror/language'
-import { StateField, type EditorState, type Extension, type Range } from '@codemirror/state'
+import { StateEffect, StateField, type EditorState, type Extension, type Range } from '@codemirror/state'
 import { Decoration, EditorView, type DecorationSet } from '@codemirror/view'
 import type { SyntaxNodeRef } from '@lezer/common'
 import { isFrontmatterFence } from '../state/frontmatter'
@@ -24,6 +24,24 @@ export interface LivePreviewConfig {
 }
 
 /**
+ * Whether the editor has focus, as state the preview can read.
+ *
+ * "The line you are editing" needs both a cursor and focus. A CodeMirror
+ * selection always exists — at position 0 in a note nobody has clicked into —
+ * so reading the cursor alone kept a note's first line as raw markdown from
+ * the moment it opened. Exported so a test can say the editor is focused.
+ */
+export const focusChanged = StateEffect.define<boolean>()
+
+const editorFocused = StateField.define<boolean>({
+  create: () => false,
+  update(focused, tr) {
+    for (const effect of tr.effects) if (effect.is(focusChanged)) focused = effect.value
+    return focused
+  },
+})
+
+/**
  * Live preview: markup is hidden and replaced with what it means, except on
  * the line you are editing, where the raw source comes back.
  *
@@ -46,7 +64,10 @@ export function livePreview(config: LivePreviewConfig): Extension {
       // and the transaction that lands the new tree changes neither the
       // document nor the selection. Without this, everything below the first
       // screen of a long note stays raw markdown until you happen to type.
-      tr.docChanged || tr.selection || syntaxTree(tr.state) !== syntaxTree(tr.startState)
+      tr.docChanged ||
+      tr.selection ||
+      tr.effects.some((effect) => effect.is(focusChanged)) ||
+      syntaxTree(tr.state) !== syntaxTree(tr.startState)
         ? build(tr.state, config)
         : value,
     provide: (f) => [
@@ -57,7 +78,12 @@ export function livePreview(config: LivePreviewConfig): Extension {
     ],
   })
 
-  return [field, clickHandler(config)]
+  return [
+    field,
+    editorFocused,
+    EditorView.focusChangeEffect.of((_state, focusing) => focusChanged.of(focusing)),
+    clickHandler(config),
+  ]
 }
 
 interface Built {
@@ -70,16 +96,18 @@ function build(state: EditorState, config: LivePreviewConfig): Built {
   const hiddenRanges: Range<Decoration>[] = []
 
   // The lines the selection touches keep their raw markup, so editing what you
-  // see is always possible without a mode switch.
+  // see is always possible without a mode switch — while the editor has focus.
+  // Without it nothing is being edited, and every line reads rendered.
+  const focused = state.field(editorFocused, false) ?? false
+  const ranges = focused ? state.selection.ranges : []
   const activeLines = new Set<number>()
-  for (const range of state.selection.ranges) {
+  for (const range of ranges) {
     const first = state.doc.lineAt(range.from).number
     const last = state.doc.lineAt(range.to).number
     for (let n = first; n <= last; n++) activeLines.add(n)
   }
   const lineActive = (pos: number) => activeLines.has(state.doc.lineAt(pos).number)
-  const blockActive = (from: number, to: number) =>
-    state.selection.ranges.some((r) => r.to >= from && r.from <= to)
+  const blockActive = (from: number, to: number) => ranges.some((r) => r.to >= from && r.from <= to)
 
   const hide = (from: number, to: number) => {
     if (to <= from) return
