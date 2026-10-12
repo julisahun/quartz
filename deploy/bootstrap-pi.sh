@@ -18,7 +18,7 @@ SEED_DIR=/srv/webdav/juli/obsidian
 # no identifiers of the machine it runs on.
 CLOUDFLARED_CONF=${CLOUDFLARED_CONF:-/etc/cloudflared/config.yml}
 TUNNEL=${QUARTZ_TUNNEL:-$(awk '/^tunnel:/ {print $2; exit}' "$CLOUDFLARED_CONF" 2>/dev/null)}
-HOSTNAME_PUBLIC=${QUARTZ_HOSTNAME:-notes.sigint-pm.uk}
+HOSTNAME_PUBLIC=${QUARTZ_HOSTNAME:-notes.sigint.page}
 PORT=8086
 
 say() { printf '\n== %s\n' "$1"; }

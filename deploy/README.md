@@ -1,4 +1,4 @@
-# Deploying Quartz to the Pi
+# Deploying Quartz to home-lab
 
 Follows section 7 of `~/.claude/personal-deployments.md`: a hosted runner builds,
 Tailscale SSH ships, systemd runs it on a loopback port, cloudflared fronts it.
@@ -6,24 +6,28 @@ No Docker, no self-hosted runner.
 
 | | |
 |---|---|
-| Host | `sigint` (the Pi) |
+| Host | `home-lab` (linux/amd64; on the Pi until 2026-09-20) |
 | Port | `8086`, loopback only — no ufw rule needed |
-| Binary | `/opt/quartz/quartz` (+ `quartz-passwd`) |
+| Binary | `/opt/quartz/quartz` (+ `quartz-admin`, `quartz-passwd`, `quartzctl`) |
 | Web | `/opt/quartz/web` (built PWA, served by the binary) |
 | Accounts | `/srv/quartz/accounts.sqlite` — users, vaults, members, sessions. **Not rebuildable; back this up.** |
 | Vaults | `/srv/quartz/vaults/<id>` — plain `.md`, a git repo each, valid Obsidian vaults (the first account keeps `/srv/quartz/vault`) |
 | Indexes | `/srv/quartz/index/<id>.sqlite` — rebuildable, safe to delete |
-| Public | `notes.sigint-pm.uk` |
+| Public | `notes.sigint.page` |
 | Service | `quartz.service` |
 
-## One-time setup on the Pi
+## One-time setup
+
+Already done on home-lab; this is for a fresh host. The vaults came over from
+the Pi in the 2026-09-20 move, so a rebuild restores `/srv/quartz` from backup
+rather than seeding it. `bootstrap-pi.sh` is the original Pi-era version of
+these steps, kept for reference.
 
 ```bash
 sudo mkdir -p /opt/quartz /srv/quartz/vault
 sudo chown -R sigint:sigint /opt/quartz /srv/quartz
 
-# Seed the vault (the Pi's rollback copy of the Obsidian vault).
-rsync -a /srv/webdav/juli/obsidian/ /srv/quartz/vault/
+# Restore /srv/quartz (accounts.sqlite + vaults) from backup here.
 
 # Config, with a hash from the quartz-passwd binary shipped alongside.
 install -m 600 /dev/null /opt/quartz/.env
@@ -43,9 +47,9 @@ restart cloudflared.
 
 ## Deploys
 
-`.github/workflows/deploy.yml` on `master`: build the arm64 binaries and the
+`.github/workflows/deploy.yml` on `master`: build the amd64 binaries and the
 PWA on a hosted runner, join the tailnet as `tag:ci`, rsync to
-`sigint@sigint:/opt/quartz/`, restart, smoke-test.
+`sigint@home-lab:/opt/quartz/`, restart, smoke-test.
 
 Watch one with `gh run watch <id> -R julisahun/quartz --exit-status`.
 
@@ -55,7 +59,7 @@ There is no signup page. Run the CLI **as `sigint`**, so the directories it
 creates are owned by the service:
 
 ```bash
-ssh pi
+ssh home-lab
 /opt/quartz/quartz-admin user add maria          # prompts for a password
 /opt/quartz/quartz-admin vault create casa -owner juli -name "Casa"
 /opt/quartz/quartz-admin vault share casa maria
@@ -75,7 +79,7 @@ remove maria` keeps her notes on disk unless you pass `-purge`.
 
 ## Recovering a note
 
-Every vault is a git repo, so history is on the Pi:
+Every vault is a git repo, so history is on home-lab:
 
 ```bash
 git -C /srv/quartz/vault log --oneline -- "notes/thing.md"

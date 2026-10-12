@@ -92,7 +92,7 @@ third-party cookie. The desktop shell logs in with `"client": "desktop"`,
 gets the session token in the response, and sends it as a bearer token. The
 browser build never asks for the token and keeps using the HttpOnly cookie.
 
-Point it at a server other than `notes.sigint-pm.uk` under **Settings → This
+Point it at a server other than `notes.sigint.page` under **Settings → This
 device → Server** — the gear beside the sync light. It is read once at start-up,
 so a change takes effect on the next launch. This is the only shell that offers
 it: the PWA is served by the server it syncs with, so its API is same-origin and
