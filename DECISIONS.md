@@ -688,3 +688,24 @@ The calendar itself lives in the daily-note plugin: a sidebar section with a
 month grid (a dot per day that has a note, from paths alone) and a week list
 (two lines of each day's note). It counts daily notes only, `journal/YYYY-MM-DD.md`;
 hours, and a full-page view, are for later.
+
+## The calendar moves into the main pane (2026-10-12)
+
+The sidebar calendar of the entry above was the wrong size and in the wrong
+place: a journal is read, and a third of a sidebar is no place to read it.
+Mockups were compared on a canvas before any of this was written.
+
+| Question | Decision | Notes |
+|---|---|---|
+| Where does the calendar live? | **A view in the main pane** | Opened from a calendar button in the sidebar header — beside search on a desktop, in the list's bar on a phone — and pressed while it is open. On a phone it is a screen of its own, with the back gesture. The note under it stays open; opening any note closes the view. |
+| Month or week? | **Both, one switch** | The month is for seeing which days are written: a dot and the first line where there is room, dots alone on a phone with the month's notes listed underneath. Tapping a written day opens it; an empty one goes to its week. |
+| What does the week show? | **Every day's note in full, one under the other, read-only** | Seven columns were tried and cut the text off; seven editors would need the one-open-note model rebuilt. A small renderer in the plugin reads markdown back; "Open" puts a day in the editor, and an empty day says "No note · Write" instead of creating one on a tap. |
+| `journal/` in the note tree? | **Hidden, whole folder, while the plugin is on** | The calendar is the way in. Only the tree: search and ⌘P still find a day by what was written in it. No setting. |
+| Can the calendar be the home? | **Yes — a home is a note or a view** | The plugin offers two homes, today's note and the calendar. A plugin takes over the home once, with the first it offers; the second is an alternative to pick in Settings → Home, which is the plugin's only "setting". |
+
+What the API grew for it: `ui.view`, `ui.openView`, `ui.sidebarButton`
+(which opens a view, and nothing else, so far) and `ui.hideFromTree`; a
+home's `resolve` may answer `{ view }`. The app side is `ui/views.tsx`,
+`state/hidden.ts` and a `sidebar.buttons` slot — none of which knows what a
+plugin is.
+

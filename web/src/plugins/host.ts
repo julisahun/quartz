@@ -1,5 +1,6 @@
-import { useMemo } from 'react'
+import { createElement, useMemo, type ReactNode } from 'react'
 import { addCommand } from '../state/commands'
+import { hideFromTree } from '../state/hidden'
 import { addHomeSource } from '../state/home'
 import { parseFrontmatter } from '../state/frontmatter'
 import { folderOf, isNote, noteTitle } from '../state/notes'
@@ -7,6 +8,7 @@ import { useApp } from '../state/store'
 import { tagKey } from '../state/tags'
 import { askConfirm, askText, openMenu } from '../ui/dialogs'
 import { addToSlot } from '../ui/Slot'
+import { addView } from '../ui/views'
 import type { FileMeta } from '../vault/types'
 import type { NoteRef, Quartz, QuartzPlugin, VaultSnapshot } from '@quartz/plugin-api'
 
@@ -87,6 +89,25 @@ function quartzFor(plugin: QuartzPlugin, disposers: Array<() => void>): Quartz {
           }),
         )
       },
+      view(view) {
+        disposers.push(addView({ id: scoped(view.id), title: view.title, render: () => view.render() }))
+      },
+      openView(id) {
+        void useApp.getState().openView(scoped(id))
+      },
+      sidebarButton(button) {
+        const view = scoped(button.view)
+        disposers.push(
+          addToSlot('sidebar.buttons', {
+            id: scoped(button.id),
+            order: button.order,
+            render: () => createElement(ViewButton, { label: button.label, icon: button.icon, view }),
+          }),
+        )
+      },
+      hideFromTree(hide) {
+        disposers.push(hideFromTree(hide))
+      },
       notify(kind, text) {
         useApp.getState().notify(kind, text)
       },
@@ -95,7 +116,18 @@ function quartzFor(plugin: QuartzPlugin, disposers: Array<() => void>): Quartz {
     home: {
       provide(home) {
         disposers.push(
-          addHomeSource({ id: scoped(home.id), label: home.label, by: plugin.name, resolve: home.resolve }),
+          addHomeSource({
+            id: scoped(home.id),
+            label: home.label,
+            by: plugin.name,
+            group: plugin.id,
+            // A view is named the way the plugin registered it, and lives
+            // under the plugin's namespace like everything else it adds.
+            resolve: async () => {
+              const found = await home.resolve()
+              return found && typeof found === 'object' ? { view: scoped(found.view) } : found
+            },
+          }),
         )
       },
     },
@@ -162,4 +194,27 @@ function notesOf(files: FileMeta[]): NoteRef[] {
       mtime: file.mtime,
       size: file.size,
     }))
+}
+
+/**
+ * A header button that opens a view, pressed while it is open. Pressed again,
+ * it closes the view and hands the pane back to the note under it.
+ */
+function ViewButton({ label, icon, view }: { label: string; icon: () => ReactNode; view: string }) {
+  const open = useApp((s) => s.currentView === view)
+  return createElement(
+    'button',
+    {
+      className: `icon-button${open ? ' pressed' : ''}`,
+      'aria-label': label,
+      'aria-pressed': open,
+      title: label,
+      onClick: () => {
+        const app = useApp.getState()
+        if (open) app.closeView()
+        else void app.openView(view)
+      },
+    },
+    icon(),
+  )
 }

@@ -131,6 +131,13 @@ interface AppState {
    * first to go straight to the note instead of the list.
    */
   homeOpened: number
+  /**
+   * A view in the main pane instead of the note, by id. The note stays open
+   * under it, and opening any note closes it.
+   */
+  currentView: string | undefined
+  /** Counts the times a view has been opened, so a phone can go to it each time. */
+  viewOpened: number
 
   boot(): Promise<void>
   /**
@@ -163,6 +170,8 @@ interface AppState {
   /** Stops listing a folder. Never touches the folder or the notes in it. */
   forgetFolder(id: string): Promise<void>
   open(path: string): Promise<void>
+  openView(id: string): Promise<void>
+  closeView(): void
   edit(text: string): void
   save(): Promise<void>
   createNote(title: string, folder?: string): Promise<string>
@@ -500,6 +509,11 @@ export const useApp = create<AppState>()((set, get) => {
       notice('info', `Home: ${found.problem}.`)
       return
     }
+    if ('view' in found) {
+      if (get().currentPath) return
+      set((s) => ({ currentView: found.view, homeOpened: s.homeOpened + 1 }))
+      return
+    }
     const open = get().currentPath
     if (open && open !== found.path) return
     if (!get().files.some((f) => f.path === found.path)) {
@@ -573,6 +587,8 @@ export const useApp = create<AppState>()((set, get) => {
     lastSyncedAt: 0,
     notices: [],
     homeOpened: 0,
+    currentView: undefined,
+    viewOpened: 0,
 
     boot() {
       return thenLand(async () => {
@@ -701,6 +717,7 @@ export const useApp = create<AppState>()((set, get) => {
       persisted.setLastVault(id)
       set({
         currentVault: id,
+        currentView: undefined,
         currentPath: undefined,
         content: '',
         unsaved: false,
@@ -862,6 +879,8 @@ export const useApp = create<AppState>()((set, get) => {
       const runtime = current()
       if (!runtime) return
       if (get().unsaved) await get().save()
+      // Whatever view was over the pane gives way to the note asked for.
+      if (get().currentView) set({ currentView: undefined })
 
       // A PDF is opened by path. Its bytes go straight from the store to a
       // viewer when one asks for them; reading two megabytes of binary here
@@ -883,6 +902,15 @@ export const useApp = create<AppState>()((set, get) => {
       } catch {
         notice('error', `${path} is not stored on this device yet`)
       }
+    },
+
+    async openView(id) {
+      if (get().unsaved) await get().save()
+      set((s) => ({ currentView: id, viewOpened: s.viewOpened + 1 }))
+    },
+
+    closeView() {
+      set({ currentView: undefined })
     },
 
     edit(text) {

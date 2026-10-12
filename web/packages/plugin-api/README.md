@@ -22,9 +22,10 @@ A plugin never imports anything else from the app. That is not a convention:
 the app's `boundary.test.ts` fails if one does.
 
 What a plugin can reach: `q.vault` (read, write, search, react to changes),
-`q.commands` (⌘P), `q.ui` (sidebar sections, status items, note panels,
-dialogs) and `q.home`, which offers a note for a vault to open on — worked out
-at each launch, so "today's note" can be one.
+`q.commands` (⌘P), `q.ui` (sidebar sections and header buttons, status items,
+note panels, views in the main pane, hiding paths from the tree, dialogs) and
+`q.home`, which offers a note or a view for a vault to open on — worked out at
+each launch, so "today's note" can be one.
 
 ## Three things to know
 

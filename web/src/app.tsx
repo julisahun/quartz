@@ -6,6 +6,7 @@ import { Notices } from './ui/Notices'
 import { NoteEditor } from './ui/NoteEditor'
 import { QuickOpen } from './ui/QuickOpen'
 import { useScreens } from './ui/screens'
+import { ViewPane } from './ui/views'
 import { SettingsView } from './ui/SettingsView'
 import { Sidebar } from './ui/Sidebar'
 import { StatusBar } from './ui/StatusBar'
@@ -20,6 +21,8 @@ export function App() {
   const phase = useApp((s) => s.phase)
   const boot = useApp((s) => s.boot)
   const currentPath = useApp((s) => s.currentPath)
+  const currentView = useApp((s) => s.currentView)
+  const viewOpened = useApp((s) => s.viewOpened)
   // Keyed on the session rather than on the sync light: a folder from disk
   // reports "local" whatever the session is doing, which used to swallow this
   // banner on the one device that most needed it.
@@ -51,6 +54,11 @@ export function App() {
     setLanded(true)
     showNote()
   }, [landed, homeOpened, showNote])
+
+  // A view lives where a note does, so on a phone opening one is going there.
+  useEffect(() => {
+    if (viewOpened > 0) showNote()
+  }, [viewOpened, showNote])
 
   useEffect(() => {
     // Registered before boot, which opens a vault and may have to ask.
@@ -99,8 +107,8 @@ export function App() {
   // A note can go away underneath the screen showing it — deleted here, or
   // pulled as a delete from another device.
   useEffect(() => {
-    if (screen === 'note' && !currentPath) back()
-  }, [screen, currentPath, back])
+    if (screen === 'note' && !currentPath && !currentView) back()
+  }, [screen, currentPath, currentView, back])
 
   if (phase === 'loading') {
     return (
@@ -135,12 +143,16 @@ export function App() {
       {lostSession && <SignedOutBanner />}
       <Sidebar onNavigate={showNote} inert={covered || (isPhone && screen === 'note')} />
       <main className="pane" ref={setPane} inert={covered || (isPhone && screen === 'list')}>
-        <NoteEditor
-          livePreview={livePreview}
-          onToggleLivePreview={() => setLivePreview((v) => !v)}
-          onBack={back}
-          onQuickOpen={() => setQuickOpen(true)}
-        />
+        {currentView ? (
+          <ViewPane id={currentView} onBack={back} />
+        ) : (
+          <NoteEditor
+            livePreview={livePreview}
+            onToggleLivePreview={() => setLivePreview((v) => !v)}
+            onBack={back}
+            onQuickOpen={() => setQuickOpen(true)}
+          />
+        )}
       </main>
       <Notices />
       <StatusBar onOpenSettings={showSettings} />

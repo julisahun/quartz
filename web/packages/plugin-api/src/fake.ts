@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import type { Command, NoteRef, Property, Quartz, VaultSnapshot } from './api'
 import { folderOf, noteTitle, tagKey } from './paths'
 
@@ -17,9 +17,16 @@ export interface FakeQuartz extends Quartz {
   sections: Array<{ id: string; title: string; order?: number }>
   statusItems: string[]
   panels: string[]
+  /** Views registered, and the ones opened, oldest first. */
+  views: Array<{ id: string; title: string; render: () => ReactNode }>
+  openedViews: string[]
+  buttons: Array<{ id: string; label: string; view: string }>
+  /** The tree rules registered. `hidden(path)` asks all of them. */
+  treeFilters: Array<(path: string) => boolean>
+  hidden(path: string): boolean
   notices: Array<{ kind: string; text: string }>
   /** Homes offered, in order. Call `resolve` to see where one would land. */
-  homes: Array<{ id: string; label: string; resolve: () => Promise<string | undefined> }>
+  homes: Array<{ id: string; label: string; resolve: () => Promise<string | { view: string } | undefined> }>
   /** Notes opened, oldest first. The last one is what is on screen. */
   opened: string[]
   current: string | undefined
@@ -49,6 +56,11 @@ export function fakeQuartz(files: Record<string, string> = {}, options: FakeOpti
     sections: [],
     statusItems: [],
     panels: [],
+    views: [],
+    openedViews: [],
+    buttons: [],
+    treeFilters: [],
+    hidden: (path) => q.treeFilters.some((hide) => hide(path)),
     notices: [],
     homes: [],
     opened: [],
@@ -128,6 +140,18 @@ export function fakeQuartz(files: Record<string, string> = {}, options: FakeOpti
       },
       notePanel({ id }) {
         q.panels.push(id)
+      },
+      view(view) {
+        q.views.push(view)
+      },
+      openView(id) {
+        q.openedViews.push(id)
+      },
+      sidebarButton({ id, label, view }) {
+        q.buttons.push({ id, label, view })
+      },
+      hideFromTree(hide) {
+        q.treeFilters.push(hide)
       },
       notify(kind, text) {
         q.notices.push({ kind, text })

@@ -6,11 +6,17 @@ import { useApp } from '../state/store'
  * Named places in the chrome that anything can render into.
  *
  * A screen names a slot and renders whatever is in it; it does not know who
- * put it there or why. Four places are worth opening up — a section in the
- * sidebar, an item in the status bar, a panel under the editor, a block in the
- * settings screen — and each one costs its screen a single line.
+ * put it there or why. Five places are worth opening up — a section in the
+ * sidebar, a button in its header, an item in the status bar, a panel under
+ * the editor, a block in the settings screen — and each one costs its screen
+ * a single line.
  */
-export type SlotName = 'sidebar.sections' | 'status.items' | 'note.panels' | 'settings.sections'
+export type SlotName =
+  | 'sidebar.sections'
+  | 'sidebar.buttons'
+  | 'status.items'
+  | 'note.panels'
+  | 'settings.sections'
 
 export interface SlotContext {
   /** The open note, or undefined when nothing is. */
@@ -31,6 +37,7 @@ interface SlotState {
 
 const empty = (): SlotState['slots'] => ({
   'sidebar.sections': [],
+  'sidebar.buttons': [],
   'status.items': [],
   'note.panels': [],
   'settings.sections': [],

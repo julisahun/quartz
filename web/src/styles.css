@@ -228,6 +228,12 @@ kbd {
   color: var(--text);
 }
 
+/* A button standing for something on screen right now: the calendar's, while it is open. */
+.icon-button.pressed {
+  background: var(--tag-bg-hover);
+  color: var(--accent);
+}
+
 .icon-button-text {
   font-size: 0.95rem;
 }
@@ -438,6 +444,15 @@ html.resizing * {
   padding-left: calc(0.35rem + var(--sal));
   border-bottom: 1px solid var(--border);
   background: var(--sidebar-bg);
+}
+
+/* A view in the pane instead of a note: it scrolls, and brings its own layout. */
+.view-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: var(--sab);
 }
 
 .pane .appbar {

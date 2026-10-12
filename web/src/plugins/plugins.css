@@ -122,201 +122,488 @@
   background: var(--tag-bg);
 }
 
-/* --- The daily note's calendar. --- */
+/* --- The daily note's calendar, a view in the main pane. --- */
 
-.px-cal {
-  overflow-y: auto;
-  min-height: 0;
-  padding: 0 0.75rem 0.5rem;
+.px-calv {
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: 1.6rem 2rem 2.5rem;
 }
 
-.px-cal-head,
-.px-cal-bar {
+.px-calv-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1.2rem;
+}
+
+.px-calv-heading {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
-  margin-bottom: 0.3rem;
+  gap: 0.15rem;
+  min-width: 0;
 }
 
-.px-cal-bar {
-  justify-content: space-between;
-}
-
-.px-cal-title {
-  flex: 1;
-  text-align: center;
-  font-size: 0.8rem;
+.px-calv-title {
+  margin: 0 0.4rem 0 0;
+  font-family: var(--font-heading);
+  font-size: 1.85rem;
   font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
-.px-cal-step,
-.px-cal-today,
-.px-cal-views button {
-  min-width: 1.8rem;
-  min-height: 1.8rem;
+.px-calv-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.px-calv-step,
+.px-calv-today,
+.px-calv-modes button,
+.px-calv-open {
+  min-height: 2.25rem;
   border: 0;
   border-radius: var(--radius);
   background: none;
   color: var(--muted);
   font: inherit;
-  font-size: 0.78rem;
   cursor: pointer;
 }
 
-.px-cal-today {
-  padding: 0 0.6rem;
-  border: 1px solid var(--border);
+.px-calv-step {
+  min-width: 2.25rem;
+  font-size: 1.3rem;
 }
 
-.px-cal-views {
+.px-calv-today {
+  padding: 0 0.9rem;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.px-calv-modes {
   display: inline-flex;
-  padding: 2px;
+  padding: 3px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  background: var(--sidebar-bg);
 }
 
-.px-cal-views button {
-  min-height: 1.6rem;
-  padding: 0 0.6rem;
+.px-calv-modes button {
+  min-height: 1.85rem;
+  padding: 0 0.9rem;
   border-radius: calc(var(--radius) - 2px);
+  font-size: 0.85rem;
 }
 
-.px-cal-views button.on {
-  background: var(--tag-bg-hover);
+.px-calv-modes button.on {
+  background: var(--bg-raised);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+}
+
+.px-calv-step:hover,
+.px-calv-modes button:hover,
+.px-calv-open:hover {
   color: var(--text);
 }
 
-.px-cal-step:hover,
-.px-cal-today:hover,
-.px-cal-views button:hover {
-  color: var(--text);
-  background: var(--tag-bg);
-}
+/* Month. */
 
-.px-cal-grid {
+.px-calv-weekdays,
+.px-calv-month {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 2px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
 }
 
-.px-cal-weekday {
-  padding: 0.15rem 0;
-  text-align: center;
+.px-calv-weekdays {
+  padding-bottom: 0.45rem;
+  margin-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.px-calv-weekdays span {
+  padding-left: 0.6rem;
   color: var(--faint);
-  font-size: 0.7rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
-.px-cal-day {
-  position: relative;
-  aspect-ratio: 1;
-  min-height: 1.9rem;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: var(--muted);
-  font: inherit;
-  font-size: 0.78rem;
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
+.px-calv-month {
+  gap: 6px;
 }
 
-.px-cal-day:hover {
-  color: var(--text);
-  background: var(--tag-bg);
-}
-
-.px-cal-day.written {
-  color: var(--text);
-}
-
-/* A dot under the number: there is a note for this day. */
-.px-cal-day.written::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  bottom: 3px;
-  width: 4px;
-  height: 4px;
-  margin-left: -2px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
-.px-cal-day.today,
-.px-cal-row.today .px-cal-row-day {
-  font-weight: 700;
-  color: var(--accent);
-}
-
-.px-cal-day.open,
-.px-cal-row.open {
-  background: var(--tag-bg-hover);
-  color: var(--text);
-}
-
-.px-cal-week {
+.px-calv-day {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.px-cal-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.6rem;
-  width: 100%;
-  min-height: var(--tap);
-  padding: 0.35rem 0.4rem;
-  border: 0;
-  border-radius: 6px;
-  background: none;
+  align-items: stretch;
+  gap: 0.35rem;
+  min-width: 0;
+  min-height: 6rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
   color: var(--text);
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
-.px-cal-row:hover {
-  background: var(--tag-bg);
+.px-calv-day:hover {
+  border-color: var(--border-strong);
 }
 
-.px-cal-row-day {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  align-items: center;
-  width: 2rem;
-  color: var(--muted);
-  line-height: 1.15;
-}
-
-.px-cal-row-name {
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.px-cal-row-date {
-  font-size: 0.95rem;
+.px-calv-num {
+  align-self: flex-start;
+  min-width: 1.65rem;
+  height: 1.65rem;
+  display: grid;
+  place-items: center start;
+  font-size: 0.9rem;
   font-variant-numeric: tabular-nums;
 }
 
-/* Two lines of what was written, then an ellipsis. */
-.px-cal-row-text {
+.px-calv-day.today .px-calv-num {
+  place-items: center;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+}
+
+.px-calv-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.px-calv-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-top: 0.4rem;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.px-calv-line {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
+  color: var(--muted);
   font-size: 0.8rem;
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
 
-.px-cal-row-text.empty {
+/* The month's notes as a list: only where the cells have no room for text. */
+.px-calv-written {
+  display: none;
+}
+
+/* Week: one day under the other, each note as it reads. */
+
+.px-calv-week {
+  max-width: var(--measure);
+  margin: 0 auto;
+}
+
+.px-calv-entry {
+  padding: 1.3rem 0 1.2rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.px-calv-entry-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
+.px-calv-entry-head h2 {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.px-calv-entry.today .px-calv-entry-head h2 {
+  color: var(--accent);
+}
+
+.px-calv-entry-month {
   color: var(--faint);
+  font-size: 0.85rem;
+}
+
+.px-calv-spacer {
+  flex: 1;
+}
+
+.px-calv-open {
+  padding: 0 0.7rem;
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.px-calv-write {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0 0.9rem;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--faint);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.px-calv-write-action {
+  margin-left: auto;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* A day's note, read-only. */
+
+.px-md {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  font-size: 0.97rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.px-md p,
+.px-md h3,
+.px-md h4,
+.px-md blockquote,
+.px-md pre {
+  margin: 0;
+}
+
+.px-md h3,
+.px-md h4 {
+  margin-top: 0.3rem;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.px-md h4 {
+  color: var(--muted);
+}
+
+.px-md blockquote {
+  padding-left: 0.8rem;
+  border-left: 2px solid var(--border-strong);
+  color: var(--muted);
+}
+
+.px-md pre,
+.px-md code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--code-bg);
+  border-radius: 6px;
+}
+
+.px-md code {
+  padding: 0.05em 0.3em;
+}
+
+.px-md pre {
+  padding: 0.6rem 0.75rem;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.px-md-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.px-md-item.done > span:last-child {
+  color: var(--faint);
+  text-decoration: line-through;
+}
+
+.px-md-bullet {
+  color: var(--faint);
+}
+
+.px-md-box {
+  flex: none;
+  align-self: center;
+  width: 0.85rem;
+  height: 0.85rem;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 4px;
+}
+
+.px-md-box.checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.px-md-link {
+  color: var(--accent);
+}
+
+.px-md-embed {
+  color: var(--faint);
+  font-style: italic;
+}
+
+.px-md-empty {
+  margin: 0;
+  color: var(--faint);
+  font-size: 0.9rem;
+}
+
+/* A phone: dots in the month, the notes listed under it. */
+@media (max-width: 46rem) {
+  .px-calv {
+    padding: 0.75rem 1rem 2rem;
+  }
+
+  .px-calv-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .px-calv-heading .px-calv-title {
+    flex: 1;
+    font-size: 1.6rem;
+  }
+
+  .px-calv-step {
+    min-width: var(--tap);
+    min-height: var(--tap);
+  }
+
+  .px-calv-controls {
+    gap: 0.5rem;
+  }
+
+  .px-calv-modes {
+    flex: 1;
+  }
+
+  .px-calv-modes button {
+    flex: 1;
+    min-height: 2.2rem;
+  }
+
+  .px-calv-today {
+    min-height: 2.6rem;
+  }
+
+  .px-calv-weekdays span {
+    padding-left: 0;
+    text-align: center;
+  }
+
+  .px-calv-month {
+    gap: 2px;
+  }
+
+  .px-calv-day {
+    align-items: center;
+    min-height: 3rem;
+    padding: 0.3rem 0;
+    gap: 0.2rem;
+    border: 0;
+    background: none;
+  }
+
+  .px-calv-num {
+    align-self: center;
+    width: 2rem;
+    height: 2rem;
+    place-items: center;
+    font-size: 1rem;
+  }
+
+  .px-calv-dot {
+    margin: 0;
+    width: 5px;
+    height: 5px;
+  }
+
+  .px-calv-line {
+    display: none;
+  }
+
+  .px-calv-written {
+    display: block;
+    margin-top: 1rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .px-calv-written h2 {
+    margin: 0 0 0.3rem;
+    color: var(--faint);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .px-calv-written-row {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    width: 100%;
+    min-height: var(--tap);
+    padding: 0.3rem 0;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+  }
+
+  .px-calv-written-day {
+    flex: none;
+    width: 2rem;
+    color: var(--accent);
+    font-family: var(--font-heading);
+    font-size: 1.1rem;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  .px-calv-written-line {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    font-size: 0.9rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .px-calv-open {
+    min-height: var(--tap);
+  }
 }
 
 /* --- The word count in the status bar. --- */

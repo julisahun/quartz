@@ -16,6 +16,7 @@ import { shortcut, useIsPhone } from './media'
 import { DRAG_TYPE, NoteRow, NoteTree } from './NoteTree'
 import { SidebarResizer } from './SidebarResizer'
 import { Slot } from './Slot'
+import { shownInTree, useTreeFilters } from '../state/hidden'
 import { VaultSwitcher } from './VaultSwitcher'
 
 interface Props {
@@ -83,7 +84,12 @@ export function Sidebar({ onNavigate, inert }: Props) {
   const refresh = useCallback(() => syncNow(), [syncNow])
   usePullToRefresh(listScroller, listFrame, { enabled: isPhone, onRefresh: refresh })
 
-  const tree = useMemo(() => buildTree(files), [files])
+  // The tree leaves out what has been hidden from it; search does not.
+  const treeFilters = useTreeFilters()
+  const tree = useMemo(
+    () => buildTree(files.filter((file) => shownInTree(treeFilters, file.path))),
+    [files, treeFilters],
+  )
   const { collapsed, toggle } = useFolders(currentVault, currentPath)
 
   const tagged = useMemo(() => {
@@ -250,9 +256,12 @@ export function Sidebar({ onNavigate, inert }: Props) {
         <AppBar
           title={vaultName()}
           trailing={
-            <button className="icon-button" onClick={listMenu} aria-label="Vault actions">
-              <Ellipsis />
-            </button>
+            <>
+              <Slot name="sidebar.buttons" />
+              <button className="icon-button" onClick={listMenu} aria-label="Vault actions">
+                <Ellipsis />
+              </button>
+            </>
           }
         />
       ) : (
@@ -277,6 +286,7 @@ export function Sidebar({ onNavigate, inert }: Props) {
           type="search"
           enterKeyHint="search"
         />
+        {!isPhone && <Slot name="sidebar.buttons" />}
         {!isPhone && (
           <button className="icon-button" onClick={() => void newNote()} aria-label="New note" title="New note">
             <Plus />

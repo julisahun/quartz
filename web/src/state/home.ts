@@ -19,6 +19,10 @@ import { create } from 'zustand'
  * person who then picks a note has the last word, and the source does not
  * take it back on the next launch. Each vault remembers which sources it has
  * already seen to tell the two apart.
+ *
+ * Sources come in groups — whatever offered them — and a group takes over
+ * once, with the first home it offers. A second home from the same place is
+ * an alternative to pick in Settings, not a new request to be the home.
  */
 export interface HomeSource {
   /** Stable and unique. Registering an id twice replaces the first. */
@@ -27,8 +31,10 @@ export interface HomeSource {
   label: string
   /** Who offers it, if anyone is worth naming. */
   by?: string
-  /** The path to open. May create the note it names. */
-  resolve(): Promise<string | undefined>
+  /** What offered it. Sources sharing one take over as one. Defaults to the id. */
+  group?: string
+  /** The path to open — it may create the note it names — or a view to show. */
+  resolve(): Promise<string | { view: string } | undefined>
 }
 
 export type HomeChoice =
@@ -80,12 +86,21 @@ export function useHomeSources(): { sources: HomeSource[]; version: number } {
 export function homeOf(vault: string): HomeChoice | undefined {
   const all = readAll()
   const home = all[vault] ?? { seen: [] }
-  const fresh = useHomeStore.getState().sources.filter((source) => !home.seen.includes(source.id))
+  const sources = useHomeStore.getState().sources
+  const fresh = sources.filter((source) => !home.seen.includes(source.id))
   if (fresh.length === 0) return home.choice
 
-  const newest = fresh[fresh.length - 1]
+  const groupOf = (source: HomeSource) => source.group ?? source.id
+  const metGroups = new Set(sources.filter((s) => home.seen.includes(s.id)).map(groupOf))
+  // One candidate per group never met before: the first home it offers.
+  const candidates: HomeSource[] = []
+  for (const source of fresh) {
+    if (metGroups.has(groupOf(source)) || candidates.some((c) => groupOf(c) === groupOf(source))) continue
+    candidates.push(source)
+  }
+  const newest = candidates[candidates.length - 1]
   all[vault] = {
-    choice: { kind: 'source', id: newest.id, label: newest.label },
+    choice: newest ? { kind: 'source', id: newest.id, label: newest.label } : home.choice,
     seen: [...home.seen, ...fresh.map((source) => source.id)],
   }
   writeAll(all)
@@ -110,13 +125,14 @@ export function setHome(vault: string, choice: HomeChoice | undefined): void {
  */
 export async function resolveHome(
   choice: HomeChoice,
-): Promise<{ path: string } | { problem: string }> {
+): Promise<{ path: string } | { view: string } | { problem: string }> {
   if (choice.kind === 'note') return { path: choice.path }
   const source = useHomeStore.getState().sources.find((s) => s.id === choice.id)
   if (!source) return { problem: `${choice.label} is not available here` }
   try {
-    const path = await source.resolve()
-    return path ? { path } : { problem: `${choice.label} has nothing to open` }
+    const found = await source.resolve()
+    if (!found) return { problem: `${choice.label} has nothing to open` }
+    return typeof found === 'string' ? { path: found } : { view: found.view }
   } catch (err) {
     return { problem: `${choice.label} failed: ${String(err)}` }
   }

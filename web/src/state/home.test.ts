@@ -4,8 +4,12 @@ import { addHomeSource, homeOf, resolveHome, setHome, type HomeSource } from './
 
 const withdrawals: Array<() => void> = []
 
-function offer(id: string, resolve: HomeSource['resolve'] = async () => `${id}.md`): () => void {
-  const withdraw = addHomeSource({ id, label: id, resolve })
+function offer(
+  id: string,
+  resolve: HomeSource['resolve'] = async () => `${id}.md`,
+  group?: string,
+): () => void {
+  const withdraw = addHomeSource({ id, label: id, resolve, group })
   withdrawals.push(withdraw)
   return withdraw
 }
@@ -56,6 +60,34 @@ describe('the last one set wins', () => {
     offer('a')
     offer('b')
     expect(homeOf('v')).toMatchObject({ kind: 'source', id: 'b' })
+  })
+})
+
+describe('several homes from one place', () => {
+  it('takes over with the first, and offers the rest', () => {
+    offer('p/today', undefined, 'p')
+    offer('p/calendar', undefined, 'p')
+    expect(homeOf('v')).toMatchObject({ kind: 'source', id: 'p/today' })
+  })
+
+  it('does not take over again when a second home is added later', () => {
+    offer('p/today', undefined, 'p')
+    homeOf('v')
+    offer('p/calendar', undefined, 'p')
+    expect(homeOf('v')).toMatchObject({ kind: 'source', id: 'p/today' })
+  })
+
+  it('keeps a picked alternative across launches', () => {
+    offer('p/today', undefined, 'p')
+    offer('p/calendar', undefined, 'p')
+    homeOf('v')
+    setHome('v', { kind: 'source', id: 'p/calendar', label: 'Calendar' })
+    expect(homeOf('v')).toMatchObject({ id: 'p/calendar' })
+  })
+
+  it('resolves a view', async () => {
+    offer('p/calendar', async () => ({ view: 'p/calendar' }), 'p')
+    expect(await resolveHome(homeOf('v')!)).toEqual({ view: 'p/calendar' })
   })
 })
 

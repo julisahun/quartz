@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeQuartz, type FakeQuartz } from '@quartz/plugin-api'
-import { dailyNote, monthCells, preview, weekOf } from '.'
+import { dailyNote, monthCells, weekOf } from '.'
+import { firstLine, stripTemplate } from './markdown'
 
 let q: FakeQuartz
 
@@ -20,8 +21,8 @@ afterEach(() => {
 })
 
 describe('the daily note', () => {
-  it('registers both days', () => {
-    expect(q.commands_.map((c) => c.id)).toEqual(['today', 'yesterday'])
+  it('registers both days, and the calendar', () => {
+    expect(q.commands_.map((c) => c.id)).toEqual(['today', 'yesterday', 'calendar'])
   })
 
   it('creates today’s note in journal/, with frontmatter and a heading', async () => {
@@ -83,9 +84,12 @@ describe('the daily note', () => {
   })
 })
 
-describe('today as the home', () => {
-  it('offers itself', () => {
-    expect(q.homes.map((home) => [home.id, home.label])).toEqual([['today', "Today's note"]])
+describe('the homes it offers', () => {
+  it('offers today first, and the calendar as the alternative', () => {
+    expect(q.homes.map((home) => [home.id, home.label])).toEqual([
+      ['today', "Today's note"],
+      ['calendar', 'Calendar'],
+    ])
   })
 
   it('names today’s note, writing it from the template the first time', async () => {
@@ -100,11 +104,28 @@ describe('today as the home', () => {
     expect(await q.homes[0].resolve()).toBe('journal/2026-09-08.md')
     expect(q.files.get('journal/2026-09-08.md')).toBe('Already written in.\n')
   })
+
+  it('answers the calendar view for the other', async () => {
+    expect(await q.homes[1].resolve()).toEqual({ view: 'calendar' })
+  })
 })
 
 describe('the calendar', () => {
-  it('puts its section in the sidebar', () => {
-    expect(q.sections.map((s) => s.id)).toEqual(['calendar'])
+  it('is a view, opened from a button in the sidebar header', () => {
+    expect(q.views.map((v) => [v.id, v.title])).toEqual([['calendar', 'Calendar']])
+    expect(q.buttons).toEqual([{ id: 'calendar', label: 'Calendar', view: 'calendar' }])
+  })
+
+  it('opens from ⌘P too', async () => {
+    await q.run('calendar')
+    expect(q.openedViews).toEqual(['calendar'])
+  })
+
+  it('takes journal/ out of the tree, and nothing else', () => {
+    expect(q.hidden('journal/2026-10-12.md')).toBe(true)
+    expect(q.hidden('journal/ideas.md')).toBe(true)
+    expect(q.hidden('journal.md')).toBe(false)
+    expect(q.hidden('notes/journal/x.md')).toBe(false)
   })
 
   it('lays a month out Monday first', () => {
@@ -119,11 +140,21 @@ describe('the calendar', () => {
     const week = weekOf(new Date(2026, 9, 11)) // a Sunday
     expect(week.map((d) => d.getDate())).toEqual([5, 6, 7, 8, 9, 10, 11])
   })
+})
 
-  it('previews what was written, not what the template wrote', () => {
-    expect(preview('---\ndate: 2026-09-08\n---\n\n# Tuesday\n\nWent to the market.\nBought figs.\n')).toBe(
-      'Went to the market. Bought figs.',
-    )
-    expect(preview('---\ndate: 2026-09-08\n---\n\n# Tuesday\n\n')).toBe('')
+describe('reading a day back', () => {
+  const day = '---\ndate: 2026-09-08\n---\n\n# Tuesday, 8 September 2026\n\nWent to the **market**.\n- figs\n'
+
+  it('drops what the template wrote', () => {
+    expect(stripTemplate(day)).toBe('\nWent to the **market**.\n- figs\n')
+  })
+
+  it('takes the first line written, as plain text', () => {
+    expect(firstLine(day)).toBe('Went to the market.')
+    expect(firstLine('# Monday\n\n- [ ] call [[Marta|M]]\n')).toBe('call M')
+  })
+
+  it('has nothing to say about an untouched day', () => {
+    expect(firstLine('---\ndate: 2026-09-08\n---\n\n# Tuesday\n\n')).toBe('')
   })
 })

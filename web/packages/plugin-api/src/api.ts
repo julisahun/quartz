@@ -162,12 +162,18 @@ export interface HomeApi {
   /**
    * Offers a home: the note a vault opens on at launch, worked out each time.
    *
-   * The newest home on offer becomes the vault's home the first time it is
-   * offered there; after that the person's own choice in Settings wins, and
-   * turning this plugin off takes its home away. `resolve` may create the
-   * note it names, and is only asked once the launch's first sync is over.
+   * A plugin's first home becomes the vault's home the first time it is
+   * offered there; any others it offers are alternatives, picked in Settings.
+   * After that the person's own choice wins, and turning this plugin off
+   * takes its homes away. `resolve` answers a note's path — it may create
+   * the note, and is only asked once the launch's first sync is over — or
+   * `{ view }`, one of this plugin's views, by the id it was registered with.
    */
-  provide(home: { id: string; label: string; resolve: () => Promise<string | undefined> }): void
+  provide(home: {
+    id: string
+    label: string
+    resolve: () => Promise<string | { view: string } | undefined>
+  }): void
 }
 
 export interface UiApi {
@@ -177,6 +183,24 @@ export interface UiApi {
   statusItem(item: { id: string; order?: number; render: () => ReactNode }): void
   /** A strip under the editor, beside the backlinks. Nothing when no note is open. */
   notePanel(panel: { id: string; order?: number; render: (path: string) => ReactNode }): void
+  /**
+   * A screen in the main pane, in place of the note. On a phone it is a
+   * screen of its own, with a way back to the list. Opening a note closes it.
+   */
+  view(view: { id: string; title: string; render: () => ReactNode }): void
+  /** Shows one of this plugin's views, by the id it was registered with. */
+  openView(id: string): void
+  /**
+   * An icon button in the sidebar's header, beside search, that opens one of
+   * this plugin's views — and shows itself pressed while that view is open.
+   * The icon is drawn on `currentColor`, about 18px.
+   */
+  sidebarButton(button: { id: string; label: string; icon: () => ReactNode; view: string; order?: number }): void
+  /**
+   * Leaves paths out of the note tree. Only the tree: search, ⌘P and links
+   * still find them, so they are tidied away rather than lost.
+   */
+  hideFromTree(hide: (path: string) => boolean): void
   notify(kind: 'info' | 'error', text: string): void
   ask: {
     text(options: { title: string; label: string; value?: string; confirmLabel?: string }): Promise<string | null>
