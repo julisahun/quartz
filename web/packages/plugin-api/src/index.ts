@@ -2,6 +2,7 @@ export type {
   Backlink,
   Command,
   CommandApi,
+  HomeApi,
   MenuItem,
   NoteRef,
   Property,

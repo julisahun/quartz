@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Dialogs } from './ui/dialogs'
 import { useSwipeBack } from './ui/gestures'
-import { useIsPhone } from './ui/media'
+import { isModKey, useIsPhone } from './ui/media'
 import { Notices } from './ui/Notices'
 import { NoteEditor } from './ui/NoteEditor'
 import { QuickOpen } from './ui/QuickOpen'
@@ -14,7 +14,7 @@ import { foldersSupported } from './vault/folders'
 import { trackViewport } from './editor/mobile'
 import { onAskWhereVaultLives, startBackgroundSync, useApp } from './state/store'
 import { noteTitle } from './state/notes'
-import { askWhereVaultLives } from './ui/actions'
+import { askWhereVaultLives, promptNewNote } from './ui/actions'
 
 export function App() {
   const phase = useApp((s) => s.phase)
@@ -41,6 +41,17 @@ export function App() {
 
   useSwipeBack(pane, { enabled: isPhone && screen === 'note', onBack: back })
 
+  // A phone shows one screen at a time, so a home the app opened on would sit
+  // behind the note list unannounced. The first landing goes to the note;
+  // later ones — switching vault from the list — leave you where you were.
+  const homeOpened = useApp((s) => s.homeOpened)
+  const [landed, setLanded] = useState(false)
+  useEffect(() => {
+    if (landed || homeOpened === 0) return
+    setLanded(true)
+    showNote()
+  }, [landed, homeOpened, showNote])
+
   useEffect(() => {
     // Registered before boot, which opens a vault and may have to ask.
     onAskWhereVaultLives(askWhereVaultLives)
@@ -59,22 +70,27 @@ export function App() {
 
   // ⌘P — Ctrl-P away from a Mac — is the switcher, as it is in every editor
   // that has one. It is caught before the editor sees it, and it costs the
-  // browser's print dialog, which is the trade all of them have made.
+  // browser's print dialog, which is the trade all of them have made. ⌘N is
+  // a new note, in the folder of the open one; a browser tab keeps ⌘N for a
+  // new window, but the desktop app and an installed PWA hand it over.
   //
-  // Only the platform's own modifier: on a Mac, Ctrl-P is still the emacs
-  // "up a line" that CodeMirror binds inside the editor, and taking that away
-  // from the people who use it would not be worth a second way to do this.
+  // Only the platform's own modifier: on a Mac, Ctrl-P and Ctrl-N are still
+  // the emacs "up" and "down a line" CodeMirror binds inside the editor.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'p' || event.altKey || event.shiftKey) return
-      if (isMac() ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey) return
-      event.preventDefault()
-      event.stopPropagation()
-      setQuickOpen((open) => !open)
+      if (isModKey(event, 'p')) {
+        event.preventDefault()
+        event.stopPropagation()
+        setQuickOpen((open) => !open)
+      } else if (isModKey(event, 'n') && useApp.getState().currentVault) {
+        event.preventDefault()
+        event.stopPropagation()
+        void promptNewNote().then((path) => path && showNote())
+      }
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [])
+  }, [showNote])
 
   useEffect(() => {
     document.title = currentPath ? `${noteTitle(currentPath)} — Quartz` : 'Quartz'
@@ -87,7 +103,11 @@ export function App() {
   }, [screen, currentPath, back])
 
   if (phase === 'loading') {
-    return <div className="splash">…</div>
+    return (
+      <div className="splash" role="status" aria-label="Loading">
+        <span className="splash-mark">Quartz</span>
+      </div>
+    )
   }
   if (phase === 'login') {
     return (
@@ -119,23 +139,16 @@ export function App() {
           livePreview={livePreview}
           onToggleLivePreview={() => setLivePreview((v) => !v)}
           onBack={back}
+          onQuickOpen={() => setQuickOpen(true)}
         />
       </main>
       <Notices />
-      <StatusBar
-        livePreview={livePreview}
-        onToggleLivePreview={() => setLivePreview((v) => !v)}
-        onOpenSettings={showSettings}
-      />
+      <StatusBar onOpenSettings={showSettings} />
       {covered && <SettingsView onBack={back} />}
       <QuickOpen open={quickOpen} onClose={() => setQuickOpen(false)} onOpened={showNote} />
       <Dialogs />
     </div>
   )
-}
-
-function isMac(): boolean {
-  return /Mac|iP(hone|od|ad)/.test(navigator.platform || navigator.userAgent)
 }
 
 /**
@@ -158,7 +171,7 @@ function NoVaults() {
         <h1>Nothing open yet</h1>
         <p className="muted">
           Signed in as {user}. A vault is a folder of markdown files: open one from this
-          machine, then <b>sync…</b> to publish it here.
+          machine, then choose <b>Publish to server…</b> from its ⋯ menu.
         </p>
         {foldersSupported() ? (
           <button className="primary" onClick={() => void openFolder()}>

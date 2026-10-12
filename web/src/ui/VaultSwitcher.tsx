@@ -2,18 +2,18 @@ import type { VaultSummary } from '../api/client'
 import { useApp } from '../state/store'
 import { isLocal } from '../state/vaults'
 import { foldersSupported } from '../vault/folders'
-import { FolderPlus } from './icons'
+import { Ellipsis, FolderPlus } from './icons'
 
 /**
  * Switches between the vaults this account can open — its own, plus any shared
  * ones it has been added to — and the folders opened from disk on this device.
  *
- * Hidden when there is only one and no folder can be opened, since most people
- * will only ever have theirs. Where folders are possible the picker stays
+ * With only one vault there is nothing to switch to, so its name is shown
+ * instead of a picker. Where folders are possible the button to open one stays
  * beside it whatever the list looks like: opening one is how a machine with no
- * account gets a vault at all.
+ * account gets a vault at all. The ⋯ is the same vault menu the phone has.
  */
-export function VaultSwitcher() {
+export function VaultSwitcher({ onMenu }: { onMenu: () => void }) {
   const vaults = useApp((s) => s.vaults)
   const currentVault = useApp((s) => s.currentVault)
   const selectVault = useApp((s) => s.selectVault)
@@ -21,7 +21,7 @@ export function VaultSwitcher() {
   const user = useApp((s) => s.user)
   const canOpenFolders = foldersSupported()
 
-  if (vaults.length <= 1 && !canOpenFolders) return null
+  const only = vaults.length === 1 ? vaults[0] : undefined
 
   // Grouped by who owns a vault. Every vault is one thing now — a directory
   // with a membership list — so ownership is the only distinction left, and it
@@ -33,7 +33,11 @@ export function VaultSwitcher() {
 
   return (
     <div className="vault-switcher">
-      {vaults.length > 0 && (
+      {only ? (
+        <span className="vault-name" title={isLocal(only) ? only.path : undefined}>
+          {only.name}
+        </span>
+      ) : vaults.length > 1 && (
         <label>
           <span className="visually-hidden">Vault</span>
           <select value={currentVault ?? ''} onChange={(e) => void selectVault(e.target.value)}>
@@ -77,6 +81,9 @@ export function VaultSwitcher() {
           <FolderPlus />
         </button>
       )}
+      <button className="icon-button" onClick={onMenu} aria-label="Vault actions" title="Vault actions">
+        <Ellipsis />
+      </button>
     </div>
   )
 }

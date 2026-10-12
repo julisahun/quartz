@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { ApiError, HttpApi, OfflineError, type SearchHit, type VaultSummary } from '../api/client'
+import { ApiError, HttpApi, OfflineError, type HistoryEntry, type SearchHit, type VaultSummary } from '../api/client'
 import { SyncEngine, type SyncNotice } from '../sync/engine'
 import { createVaultStore } from '../vault'
 import { sha256Hex } from '../vault/hash'
@@ -28,6 +28,7 @@ import {
 } from './folders'
 import { retargetLinks, retargetMoved, type Backlink } from './links'
 import { buildResolver, isNote, mimeType, noteTitle, pathForTitle, uniquePath } from './notes'
+import { homeOf, resolveHome } from './home'
 import { persisted } from './persist'
 import { detectEviction, requestPersistence } from './storage'
 import { sameBacklinks, sameTags, VaultIndex, type TagSummary } from './vault-index'
@@ -46,6 +47,19 @@ export interface Notice {
   id: number
   kind: SyncNotice['kind'] | 'info' | 'error'
   text: string
+  /** One thing to do about it — "Undo" after a delete. */
+  action?: NoticeAction
+}
+
+export interface NoticeAction {
+  label: string
+  run: () => void | Promise<void>
+}
+
+/** A file's bytes, held so a delete can be taken back. */
+export interface HeldFile {
+  path: string
+  data: Uint8Array
 }
 
 const SAVE_DEBOUNCE_MS = 500
@@ -111,6 +125,12 @@ interface AppState {
   sync: SyncState
   lastSyncedAt: number
   notices: Notice[]
+  /**
+   * Counts the times a vault has opened on its home note. A number rather than
+   * a flag so a screen can tell one landing from the next — the phone uses the
+   * first to go straight to the note instead of the list.
+   */
+  homeOpened: number
 
   boot(): Promise<void>
   /**
@@ -167,12 +187,26 @@ interface AppState {
   attach(file: File): Promise<string>
   /** A note's text as this device holds it, unsaved edits excluded. */
   readNote(path: string): Promise<string>
+  /**
+   * The bytes of some files, read before they are deleted so the delete can
+   * be undone. Files not stored on this device are skipped.
+   */
+  holdFiles(paths: string[]): Promise<HeldFile[]>
+  /** Writes held files back where they were, and opens the note if it was the only one. */
+  restoreFiles(files: HeldFile[]): Promise<void>
+  /**
+   * The server's history of a path, newest first. Undefined where there is no
+   * server history to ask — a folder from disk — so the UI can leave it out.
+   */
+  history(path: string): Promise<HistoryEntry[]> | undefined
+  /** Replaces a note's text with what it was at `rev`. */
+  restoreRevision(path: string, rev: string): Promise<void>
   blobUrl(path: string): Promise<string | undefined>
   syncNow(): Promise<void>
   search(query: string): Promise<SearchHit[]>
   setQuery(query: string): void
   /** Says something to whoever is using the app, in the same strip sync uses. */
-  notify(kind: 'info' | 'error', text: string): void
+  notify(kind: 'info' | 'error', text: string, action?: NoticeAction): void
   dismissNotice(id: number): void
 }
 
@@ -217,8 +251,8 @@ export function onAskWhereVaultLives(asker: WhereAsker): void {
 }
 
 export const useApp = create<AppState>()((set, get) => {
-  const notice = (kind: Notice['kind'], text: string) => {
-    set((s) => ({ notices: [...s.notices, { id: ++noticeId, kind, text }] }))
+  const notice = (kind: Notice['kind'], text: string, action?: NoticeAction) => {
+    set((s) => ({ notices: [...s.notices, { id: ++noticeId, kind, text, action }] }))
   }
 
   /** True for a folder opened from disk, which belongs to no account. */
@@ -441,6 +475,54 @@ export const useApp = create<AppState>()((set, get) => {
     if (first) await get().open(first.path)
   }
 
+  /**
+   * True while a launch or a sign-in is on its way to its first sync. A home
+   * that is worked out rather than typed waits for it: it may create the note
+   * it names, and creating today's note before the first sync of the day is
+   * how two devices end up with a conflict copy of it.
+   */
+  let holdingHome = false
+
+  /** Opens the vault on its home, or on its first note when it has none. */
+  const land = async () => {
+    const vault = get().currentVault
+    if (!vault || get().currentPath) return
+    const home = homeOf(vault)
+    if (!home) return openFirstNote()
+    if (home.kind === 'source' && holdingHome) return
+
+    const found = await resolveHome(home)
+    // Somebody moved on while it was being worked out: another vault, or a
+    // note of their own. A source that created its note will have opened it,
+    // which is the one path that is not somebody else's.
+    if (get().currentVault !== vault) return
+    if ('problem' in found) {
+      notice('info', `Home: ${found.problem}.`)
+      return
+    }
+    const open = get().currentPath
+    if (open && open !== found.path) return
+    if (!get().files.some((f) => f.path === found.path)) {
+      // Said rather than created: a home that was deleted should not come
+      // back as an empty note nobody asked for.
+      notice('info', `Home: ${found.path} is not in this vault.`)
+      return
+    }
+    if (open !== found.path) await get().open(found.path)
+    set((s) => ({ homeOpened: s.homeOpened + 1 }))
+  }
+
+  /** A start-up that ends in a sync, landing on the home once it has. */
+  const thenLand = async (steps: () => Promise<void>) => {
+    holdingHome = true
+    try {
+      await steps()
+    } finally {
+      holdingHome = false
+    }
+    await land()
+  }
+
   const scheduleSync = (delay = SYNC_AFTER_SAVE_MS) => {
     if (syncTimer) clearTimeout(syncTimer)
     syncTimer = setTimeout(() => void get().syncNow(), delay)
@@ -490,51 +572,53 @@ export const useApp = create<AppState>()((set, get) => {
     sync: 'idle',
     lastSyncedAt: 0,
     notices: [],
+    homeOpened: 0,
 
-    async boot() {
-      const device = persisted.device()
-      const cachedUser = persisted.user() ?? ''
-      const cachedVaults = persisted.vaults()
-      const folders = (await listFolders())
-        .filter((f) => !f.synced)
-        .map((f): LocalVaultSummary => ({ ...f, kind: 'local' }))
-      // What this device last believed. An unreachable server must not read as
-      // a sign-out: the session is still there, it just cannot be asked about.
-      const wasSignedIn = cachedUser !== '' && cachedVaults.length > 0
-      set({ device, user: cachedUser, signedIn: wasSignedIn, vaults: mergeVaults(cachedVaults, folders) })
-      if (!desktop) void requestPersistence()
+    boot() {
+      return thenLand(async () => {
+        const device = persisted.device()
+        const cachedUser = persisted.user() ?? ''
+        const cachedVaults = persisted.vaults()
+        const folders = (await listFolders())
+          .filter((f) => !f.synced)
+          .map((f): LocalVaultSummary => ({ ...f, kind: 'local' }))
+        // What this device last believed. An unreachable server must not read as
+        // a sign-out: the session is still there, it just cannot be asked about.
+        const wasSignedIn = cachedUser !== '' && cachedVaults.length > 0
+        set({ device, user: cachedUser, signedIn: wasSignedIn, vaults: mergeVaults(cachedVaults, folders) })
+        if (!desktop) void requestPersistence()
 
-      // An offline launch must never bounce you to a login you cannot reach:
-      // with something already on this device — a synced vault, or a folder
-      // opened from disk — go straight in and sort the session out afterwards.
-      const openable = (cachedUser !== '' && cachedVaults.length > 0) || folders.length > 0
-      if (openable) {
+        // An offline launch must never bounce you to a login you cannot reach:
+        // with something already on this device — a synced vault, or a folder
+        // opened from disk — go straight in and sort the session out afterwards.
+        const openable = (cachedUser !== '' && cachedVaults.length > 0) || folders.length > 0
+        if (openable) {
+          set({ phase: 'ready' })
+          const chosen = await bootVault(cachedUser)
+          if (chosen) await get().selectVault(chosen)
+        }
+
+        let identity
+        try {
+          identity = await api.session()
+        } catch {
+          // The server is unreachable. With a local vault that is not an error:
+          // read and write offline, and sync when the network comes back.
+          set({ sync: syncStateFor('offline'), phase: openable ? 'ready' : 'login' })
+          return
+        }
+        if (!identity) {
+          // Sitting in a folder from disk, there is no session to miss.
+          set({
+            signedIn: false,
+            ...(openable ? { sync: syncStateFor('needs-login') } : { phase: 'login' }),
+          })
+          return
+        }
         set({ phase: 'ready' })
-        const chosen = await bootVault(cachedUser)
-        if (chosen) await get().selectVault(chosen)
-      }
-
-      let identity
-      try {
-        identity = await api.session()
-      } catch {
-        // The server is unreachable. With a local vault that is not an error:
-        // read and write offline, and sync when the network comes back.
-        set({ sync: syncStateFor('offline'), phase: openable ? 'ready' : 'login' })
-        return
-      }
-      if (!identity) {
-        // Sitting in a folder from disk, there is no session to miss.
-        set({
-          signedIn: false,
-          ...(openable ? { sync: syncStateFor('needs-login') } : { phase: 'login' }),
-        })
-        return
-      }
-      set({ phase: 'ready' })
-      await adoptIdentity(identity.user, identity.vaults)
-      await get().syncNow()
-      await openFirstNote()
+        await adoptIdentity(identity.user, identity.vaults)
+        await get().syncNow()
+      })
     },
 
     showLogin(show) {
@@ -547,9 +631,10 @@ export const useApp = create<AppState>()((set, get) => {
     async login(user, password) {
       const identity = await api.login(user, password, get().device, desktop)
       set({ phase: 'ready', sync: 'idle' })
-      await adoptIdentity(identity.user, identity.vaults)
-      await get().syncNow()
-      await openFirstNote()
+      await thenLand(async () => {
+        await adoptIdentity(identity.user, identity.vaults)
+        await get().syncNow()
+      })
     },
 
     async logout() {
@@ -640,7 +725,7 @@ export const useApp = create<AppState>()((set, get) => {
         notice('error', `${name} could not be read: ${String(err)}`)
         return
       }
-      await openFirstNote()
+      await land()
       scheduleSync(0)
     },
 
@@ -1014,6 +1099,56 @@ export const useApp = create<AppState>()((set, get) => {
       return decodeText(await runtime.store.read(path))
     },
 
+    async holdFiles(paths) {
+      const runtime = current()
+      if (!runtime) return []
+      const held: HeldFile[] = []
+      for (const path of paths) {
+        try {
+          held.push({ path, data: await runtime.store.read(path) })
+        } catch {
+          // Not on this device: nothing to put back, and the server still has it.
+        }
+      }
+      return held
+    },
+
+    async restoreFiles(files) {
+      const runtime = current()
+      if (!runtime || files.length === 0) return
+      for (const file of files) await runtime.store.write(file.path, file.data)
+      await refreshFiles()
+      const notes = files.filter((file) => isNote(file.path))
+      if (notes.length === 1 && !get().currentPath) await get().open(notes[0].path)
+      scheduleSync()
+    },
+
+    history(path) {
+      const id = get().currentVault
+      if (!id || isLocalVault(id)) return undefined
+      const vault = api.vault(id)
+      return vault.history?.(path)
+    },
+
+    async restoreRevision(path, rev) {
+      const id = get().currentVault
+      const runtime = current()
+      if (!id || !runtime) return
+      const fetch = api.vault(id).revision
+      if (!fetch) return
+      const data = await fetch(path, rev)
+      if (get().currentPath === path) {
+        // Through the editor's own path, so the restore is one more edit —
+        // undoable with ⌘Z like any other.
+        get().edit(decodeText(data))
+        await get().save()
+        return
+      }
+      await runtime.store.write(path, data)
+      await refreshFiles()
+      scheduleSync()
+    },
+
     async blobUrl(path) {
       const runtime = current()
       if (!runtime) return undefined
@@ -1108,8 +1243,8 @@ export const useApp = create<AppState>()((set, get) => {
       set({ query })
     },
 
-    notify(kind, text) {
-      notice(kind, text)
+    notify(kind, text, action) {
+      notice(kind, text, action)
     },
 
     dismissNotice(id) {

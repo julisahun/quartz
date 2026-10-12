@@ -10,7 +10,8 @@ export function LoginScreen() {
   // Asked for from inside the app rather than bounced to, which is what a
   // folder from disk always does: there is somewhere to go back to.
   const openVault = useApp((s) => s.vaults.find((v) => v.id === s.currentVault))
-  const [user, setUser] = useState(() => useApp.getState().user || 'juli')
+  // The account this device was last signed into, if any — never a guess.
+  const [user, setUser] = useState(() => useApp.getState().user)
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -38,7 +39,16 @@ export function LoginScreen() {
         <p className="muted">Your notes, on your own machine.</p>
         <label>
           User
-          <input value={user} onChange={(e) => setUser(e.target.value)} autoComplete="username" />
+          <input
+            value={user}
+            onChange={(e) => setUser(e.target.value)}
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            // Whichever field is empty is where typing starts.
+            autoFocus={user === ''}
+          />
         </label>
         <label>
           Password
@@ -47,11 +57,11 @@ export function LoginScreen() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"
-            autoFocus
+            autoFocus={user !== ''}
           />
         </label>
         {error && <p className="error">{error}</p>}
-        <button type="submit" disabled={busy || !password}>
+        <button type="submit" disabled={busy || !password || !user.trim()}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
       </form>

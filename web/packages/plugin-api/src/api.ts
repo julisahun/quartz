@@ -63,6 +63,7 @@ export interface Quartz {
   vault: VaultApi
   commands: CommandApi
   ui: UiApi
+  home: HomeApi
 }
 
 export interface QuartzPlugin {
@@ -155,6 +156,18 @@ export interface CommandApi {
    * so two plugins may both call theirs `today`.
    */
   add(command: Command): void
+}
+
+export interface HomeApi {
+  /**
+   * Offers a home: the note a vault opens on at launch, worked out each time.
+   *
+   * The newest home on offer becomes the vault's home the first time it is
+   * offered there; after that the person's own choice in Settings wins, and
+   * turning this plugin off takes its home away. `resolve` may create the
+   * note it names, and is only asked once the launch's first sync is over.
+   */
+  provide(home: { id: string; label: string; resolve: () => Promise<string | undefined> }): void
 }
 
 export interface UiApi {

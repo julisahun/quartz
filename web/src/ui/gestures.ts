@@ -194,8 +194,8 @@ interface RevealOptions {
 
 /**
  * Swipe a row left to uncover the action at its end. The swipe only reveals —
- * the button still has to be pressed — because on this vault a delete is only
- * recoverable over SSH.
+ * the button still has to be pressed — because a delete is something to do on
+ * purpose, Undo or not.
  *
  * The action slides in over the row rather than the row sliding out from under
  * it: note titles are short, and a row that shifts a button's width to the left
@@ -272,4 +272,66 @@ export function useSwipeToReveal(
     if (!action) return
     action.style.transform = enabled && open ? 'translateX(0px)' : ''
   }, [action, enabled, open])
+}
+
+const LONG_PRESS_MS = 480
+
+/**
+ * Press and hold a row for its menu — the touch half of a right-click.
+ *
+ * iOS never fires `contextmenu`, so the hold is timed here. Moving more than a
+ * finger's wobble cancels it (that is a scroll or a swipe), and the click that
+ * the lifted finger would otherwise send is swallowed, so holding a row opens
+ * its menu without also opening the note.
+ */
+export function useLongPress(el: HTMLElement | null, { enabled, onLongPress }: { enabled: boolean; onLongPress: () => void }) {
+  useEffect(() => {
+    if (!el || !enabled) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let startX = 0
+    let startY = 0
+    let fired = false
+
+    const cancel = () => {
+      if (timer) clearTimeout(timer)
+      timer = undefined
+    }
+    const start = (event: TouchEvent) => {
+      if (event.touches.length !== 1) return cancel()
+      fired = false
+      startX = event.touches[0].clientX
+      startY = event.touches[0].clientY
+      timer = setTimeout(() => {
+        fired = true
+        timer = undefined
+        navigator.vibrate?.(10)
+        onLongPress()
+      }, LONG_PRESS_MS)
+    }
+    const move = (event: TouchEvent) => {
+      const dx = event.touches[0].clientX - startX
+      const dy = event.touches[0].clientY - startY
+      if (Math.hypot(dx, dy) > SLOP_PX) cancel()
+    }
+    const swallow = (event: Event) => {
+      if (!fired) return
+      fired = false
+      event.preventDefault()
+      event.stopPropagation()
+    }
+
+    el.addEventListener('touchstart', start, { passive: true })
+    el.addEventListener('touchmove', move, { passive: true })
+    el.addEventListener('touchend', cancel)
+    el.addEventListener('touchcancel', cancel)
+    el.addEventListener('click', swallow, true)
+    return () => {
+      cancel()
+      el.removeEventListener('touchstart', start)
+      el.removeEventListener('touchmove', move)
+      el.removeEventListener('touchend', cancel)
+      el.removeEventListener('touchcancel', cancel)
+      el.removeEventListener('click', swallow, true)
+    }
+  }, [el, enabled, onLongPress])
 }

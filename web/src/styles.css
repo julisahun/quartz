@@ -4,12 +4,19 @@
   --bg-raised: #ffffff;
   --sidebar-bg: #f2f0ec;
   --text: #1f1d1a;
-  --muted: #6b665e;
-  --faint: #9a948a;
+  /* Both are read as text, so both clear WCAG AA (4.5:1) on every surface
+     they sit on — the sidebar is the darkest of those. */
+  --muted: #5e5951;
+  --faint: #6f6a61;
   --border: #e2ded6;
   --border-strong: #c9c3b8;
   --accent: #a2542a;
   --danger: #b3261e;
+  /* What goes on an accent or danger fill: white on the dark light-mode
+     fills, and dark on the pale dark-mode ones, where white falls to 2.4:1. */
+  --on-accent: #ffffff;
+  --on-danger: #ffffff;
+  --ok: #3f8a50;
   --code-bg: #efece6;
   --selection: #dbd3c6;
   --syn-keyword: #7d4bb3;
@@ -46,12 +53,15 @@
     --bg-raised: #232220;
     --sidebar-bg: #191817;
     --text: #e8e4dd;
-    --muted: #9d968a;
-    --faint: #6f6a60;
+    --muted: #a8a195;
+    --faint: #8f897e;
     --border: #322f2b;
     --border-strong: #45413a;
     --accent: #d99a6c;
     --danger: #e4756b;
+    --on-accent: #1c1b19;
+    --on-danger: #1c1b19;
+    --ok: #6fbf7f;
     --code-bg: #26241f;
     --selection: #3a3630;
     --syn-keyword: #c191e8;
@@ -151,6 +161,43 @@ button:focus-visible {
   color: var(--faint);
 }
 
+/* Faded in late, so a quick start never flashes it and a slow one shows
+   something better than an empty page. */
+.splash-mark {
+  font-family: var(--font-heading);
+  font-size: 1.6rem;
+  letter-spacing: 0.02em;
+  opacity: 0;
+  animation: fade-in 0.4s ease-out 0.3s forwards;
+}
+
+@keyframes fade-in {
+  to {
+    opacity: 1;
+  }
+}
+
+kbd {
+  display: inline-block;
+  min-width: 1.5em;
+  padding: 0.05em 0.35em;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  font-family: var(--font-body);
+  font-size: 0.78em;
+  line-height: 1.4;
+  text-align: center;
+  color: var(--muted);
+  background: var(--bg-raised);
+}
+
+.button.primary kbd {
+  color: inherit;
+  background: transparent;
+  border-color: color-mix(in srgb, var(--on-accent) 45%, transparent);
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -197,14 +244,14 @@ button:focus-visible {
 .button.primary {
   background: var(--accent);
   border-color: transparent;
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 
 .button.danger {
   background: var(--danger);
   border-color: transparent;
-  color: #fff;
+  color: var(--on-danger);
   font-weight: 600;
 }
 
@@ -291,7 +338,7 @@ button:focus-visible {
   margin-top: 0.4rem;
   min-height: var(--tap);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   border: none;
   border-radius: var(--radius);
   padding: 0.6em;
@@ -428,9 +475,19 @@ html.resizing * {
   padding: 0.6rem 0.7rem 0;
 }
 
-.vault-switcher label {
+.vault-switcher label,
+.vault-switcher .vault-name {
   flex: 1;
   min-width: 0;
+}
+
+.vault-switcher .vault-name {
+  padding-left: 0.35rem;
+  font-family: var(--font-heading);
+  font-size: 1.05rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .vault-switcher select {
@@ -472,7 +529,25 @@ html.resizing * {
 }
 
 .list-scroll:not(.pulling) .note-list {
-  transition: transform 0.2s ease;
+  transition: transform 0.2s ease, opacity 0.15s ease;
+}
+
+/* A search is on its way: the old answer stays readable, but reads as old. */
+.note-list.busy > :not(.searching) {
+  opacity: 0.55;
+}
+
+.note-list.drop-target,
+.folder-line.drop-target {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+}
+
+/* A held row opens its menu; the system's own callout would cover it. */
+.row-wrap,
+.folder-line {
+  -webkit-touch-callout: none;
 }
 
 .pull-indicator {
@@ -624,7 +699,7 @@ html.resizing * {
   gap: 0.15rem;
   border: none;
   background: var(--danger);
-  color: #fff;
+  color: var(--on-danger);
   font-size: 0.72rem;
 }
 
@@ -728,7 +803,7 @@ html.resizing * {
   border: none;
   border-radius: 50%;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   box-shadow: 0 6px 18px rgb(0 0 0 / 0.22);
 }
 
@@ -815,6 +890,32 @@ html.resizing * {
   font-weight: 650;
 }
 
+.quick-shortcut {
+  margin-left: auto;
+  flex: none;
+}
+
+.quick-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  padding: 0.45rem 0.8rem;
+  border-top: 1px solid var(--border);
+  color: var(--faint);
+  font-size: 0.75rem;
+}
+
+.quick-foot kbd + kbd {
+  margin-left: 0.15rem;
+}
+
+/* No keys to press on a touch screen. */
+@media (hover: none) {
+  .quick-foot {
+    display: none;
+  }
+}
+
 .quick-folder {
   min-width: 0;
   overflow: hidden;
@@ -841,6 +942,196 @@ html.resizing * {
   color: var(--faint);
   padding: 1rem;
   text-align: center;
+  overflow-y: auto;
+}
+
+/* ---------- the note's own bar, on a desktop ---------- */
+
+.note-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 48px;
+  padding: 0.25rem 0.5rem 0.25rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.note-head-text {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.note-head-folder {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--faint);
+  font-size: 0.85rem;
+}
+
+.note-head-title {
+  flex: 0 1 auto;
+  min-width: 3rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 0.2rem 0.4rem;
+  margin-left: -0.4rem;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font-family: var(--font-heading);
+  font-size: 1.05rem;
+  text-align: left;
+  cursor: text;
+}
+
+.note-head-title:hover {
+  background: var(--code-bg);
+}
+
+.mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 34px;
+  padding: 0 0.6rem;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.mode-toggle:hover {
+  color: var(--text);
+  background: var(--code-bg);
+}
+
+.switch {
+  position: relative;
+  width: 1.9rem;
+  height: 1.1rem;
+  border-radius: 999px;
+  background: var(--border-strong);
+  transition: background 0.15s ease;
+}
+
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 0.15rem;
+  left: 0.15rem;
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 50%;
+  background: var(--bg-raised);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+  transition: transform 0.15s ease;
+}
+
+.mode-toggle[aria-checked='true'] .switch {
+  background: var(--accent);
+}
+
+.mode-toggle[aria-checked='true'] .switch::after {
+  transform: translateX(0.8rem);
+}
+
+/* ---------- nothing open ---------- */
+
+.welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.1rem;
+  width: min(26rem, 100%);
+}
+
+.welcome-lede {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: 1.25rem;
+  color: var(--muted);
+}
+
+.welcome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.welcome-actions .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.welcome-recent {
+  width: 100%;
+  text-align: left;
+}
+
+.welcome-recent h2 {
+  margin: 0 0 0.3rem;
+  padding: 0 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.welcome-recent ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.welcome-recent button {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+}
+
+.welcome-recent button:hover {
+  background: var(--code-bg);
+}
+
+.welcome-recent-title {
+  flex: none;
+  max-width: 70%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.welcome-recent-folder {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--faint);
+  font-size: 0.8rem;
+}
+
+.welcome-hint {
+  margin: 0;
+  font-size: 0.8rem;
 }
 
 /* ---------- a file in the pane: pdf, image ---------- */
@@ -1113,7 +1404,7 @@ html.resizing * {
 }
 
 .status-sync.idle .dot {
-  background: #4f9a5f;
+  background: var(--ok);
 }
 
 .status-sync.syncing .dot {
@@ -1163,9 +1454,13 @@ html.resizing * {
   z-index: 20;
 }
 
+.notices:empty {
+  display: none;
+}
+
 .notice {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.5rem;
   background: var(--bg-raised);
   border: 1px solid var(--border-strong);
@@ -1176,9 +1471,31 @@ html.resizing * {
   box-shadow: 0 6px 20px rgb(0 0 0 / 0.14);
 }
 
+.notice-text {
+  flex: 1;
+  min-width: 0;
+}
+
 .notice .ghost {
+  display: inline-grid;
+  place-items: center;
   min-height: var(--tap);
   min-width: var(--tap);
+}
+
+.notice-action {
+  flex: none;
+  min-height: var(--tap);
+  padding: 0 0.7rem;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.notice-action:hover {
+  background: var(--code-bg);
 }
 
 .notice.error {
@@ -1192,7 +1509,7 @@ html.resizing * {
   align-items: center;
   gap: 0.6rem;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   padding: 0.5rem 0.8rem;
   padding-top: calc(0.5rem + var(--sat));
   font-size: 0.85rem;
@@ -1205,15 +1522,19 @@ html.resizing * {
 }
 
 .banner input {
-  background: rgb(255 255 255 / 0.15);
-  border-color: rgb(255 255 255 / 0.4);
-  color: #fff;
+  background: color-mix(in srgb, var(--on-accent) 15%, transparent);
+  border-color: color-mix(in srgb, var(--on-accent) 45%, transparent);
+  color: var(--on-accent);
   min-height: var(--tap);
+}
+
+.banner input::placeholder {
+  color: color-mix(in srgb, var(--on-accent) 70%, transparent);
 }
 
 .banner button {
   min-height: var(--tap);
-  background: #fff;
+  background: var(--on-accent);
   color: var(--accent);
   border: none;
   border-radius: var(--radius);
@@ -1547,6 +1868,20 @@ html.resizing * {
   display: inline-flex;
 }
 
+/* Room under the last row for the + that floats over the list. */
+.app.phone .note-list {
+  padding-bottom: calc(5.5rem + var(--sab));
+}
+
+/* At the top on a phone: the bottom corner is the + button's. */
+.app.phone .notices {
+  top: calc(52px + var(--sat));
+  bottom: auto;
+  left: calc(0.6rem + var(--sal));
+  right: calc(0.6rem + var(--sar));
+  max-width: none;
+}
+
 .app.phone .note-row {
   min-height: 52px;
   padding: 0.6rem 0.7rem;
@@ -1604,5 +1939,15 @@ html[data-keyboard='open'] .app.phone .status {
   .settings,
   .app.phone .settings {
     animation: none;
+  }
+
+  .splash-mark {
+    animation: none;
+    opacity: 1;
+  }
+
+  .switch,
+  .switch::after {
+    transition: none;
   }
 }

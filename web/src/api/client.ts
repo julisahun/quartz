@@ -102,6 +102,31 @@ export interface VaultApi {
   putFile(path: string, data: Uint8Array, baseHash: string): Promise<FileMeta>
   deleteFile(path: string, baseHash: string): Promise<void>
   search(q: string): Promise<SearchHit[]>
+  /**
+   * The server's git log for one path, newest first. Optional: only a server
+   * keeps history, and the fakes the sync tests run against do not.
+   */
+  history?(path: string): Promise<HistoryEntry[]>
+  /** A path's bytes as of one of the revisions `history` listed. */
+  revision?(path: string, rev: string): Promise<Uint8Array>
+}
+
+/** One commit touching a path. Commits are debounced, so one may hold many edits. */
+export interface HistoryEntry {
+  rev: string
+  /** Milliseconds since the epoch. */
+  at: number
+}
+
+/** Parses the server's `<hash> <iso date> <subject>` log lines. */
+export function parseHistory(lines: string[]): HistoryEntry[] {
+  const entries: HistoryEntry[] = []
+  for (const line of lines) {
+    const [rev, date] = line.split(' ')
+    const at = Date.parse(date ?? '')
+    if (rev && !Number.isNaN(at)) entries.push({ rev, at })
+  }
+  return entries
 }
 
 /** Account-level calls, plus a way to get at one vault. */
@@ -278,6 +303,15 @@ export class HttpApi implements Api {
       search: async (q: string) => {
         const resp = await this.request(`${base}/search?q=${encodeURIComponent(q)}`)
         return (await resp.json()).hits ?? []
+      },
+      history: async (path: string) => {
+        const resp = await this.request(`${base}/history?path=${encodeURIComponent(path)}&limit=50`)
+        return parseHistory((await resp.json()).entries ?? [])
+      },
+      revision: async (path: string, rev: string) => {
+        const query = `path=${encodeURIComponent(path)}&rev=${encodeURIComponent(rev)}`
+        const resp = await this.request(`${base}/history/file?${query}`)
+        return new Uint8Array(await resp.arrayBuffer())
       },
     }
   }

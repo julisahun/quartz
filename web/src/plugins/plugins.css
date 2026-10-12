@@ -122,6 +122,203 @@
   background: var(--tag-bg);
 }
 
+/* --- The daily note's calendar. --- */
+
+.px-cal {
+  overflow-y: auto;
+  min-height: 0;
+  padding: 0 0.75rem 0.5rem;
+}
+
+.px-cal-head,
+.px-cal-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-bottom: 0.3rem;
+}
+
+.px-cal-bar {
+  justify-content: space-between;
+}
+
+.px-cal-title {
+  flex: 1;
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.px-cal-step,
+.px-cal-today,
+.px-cal-views button {
+  min-width: 1.8rem;
+  min-height: 1.8rem;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.px-cal-today {
+  padding: 0 0.6rem;
+  border: 1px solid var(--border);
+}
+
+.px-cal-views {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.px-cal-views button {
+  min-height: 1.6rem;
+  padding: 0 0.6rem;
+  border-radius: calc(var(--radius) - 2px);
+}
+
+.px-cal-views button.on {
+  background: var(--tag-bg-hover);
+  color: var(--text);
+}
+
+.px-cal-step:hover,
+.px-cal-today:hover,
+.px-cal-views button:hover {
+  color: var(--text);
+  background: var(--tag-bg);
+}
+
+.px-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.px-cal-weekday {
+  padding: 0.15rem 0;
+  text-align: center;
+  color: var(--faint);
+  font-size: 0.7rem;
+}
+
+.px-cal-day {
+  position: relative;
+  aspect-ratio: 1;
+  min-height: 1.9rem;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.px-cal-day:hover {
+  color: var(--text);
+  background: var(--tag-bg);
+}
+
+.px-cal-day.written {
+  color: var(--text);
+}
+
+/* A dot under the number: there is a note for this day. */
+.px-cal-day.written::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.px-cal-day.today,
+.px-cal-row.today .px-cal-row-day {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.px-cal-day.open,
+.px-cal-row.open {
+  background: var(--tag-bg-hover);
+  color: var(--text);
+}
+
+.px-cal-week {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.px-cal-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0.35rem 0.4rem;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.px-cal-row:hover {
+  background: var(--tag-bg);
+}
+
+.px-cal-row-day {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  width: 2rem;
+  color: var(--muted);
+  line-height: 1.15;
+}
+
+.px-cal-row-name {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.px-cal-row-date {
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Two lines of what was written, then an ellipsis. */
+.px-cal-row-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.px-cal-row-text.empty {
+  color: var(--faint);
+}
+
 /* --- The word count in the status bar. --- */
 
 .px-count {

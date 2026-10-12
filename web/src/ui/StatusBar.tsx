@@ -1,45 +1,37 @@
 import { useApp, type SyncState } from '../state/store'
 import { isLocal } from '../state/vaults'
-import { promptDelete, promptForgetFolder, promptPromote, promptRename } from './actions'
 import { Gear } from './icons'
-import { useIsPhone } from './media'
 import { Slot } from './Slot'
 
 interface Props {
-  livePreview: boolean
-  onToggleLivePreview: () => void
   onOpenSettings: () => void
 }
 
 const label: Record<SyncState, string> = {
-  idle: 'synced',
-  syncing: 'syncing…',
-  offline: 'offline',
-  'needs-login': 'signed out',
-  error: 'sync failed',
-  local: 'local folder',
+  idle: 'Synced',
+  syncing: 'Syncing…',
+  offline: 'Offline',
+  'needs-login': 'Signed out',
+  error: 'Sync failed',
+  local: 'Local folder',
 }
 
 /**
- * On a phone this is the sync light and the way into settings: everything else
- * moved into the overflow menus, where a target can be a finger wide. On a
- * desktop it stays the row of actions it has always been.
+ * The bottom strip says how things are, and does not act on the note: the
+ * sync light, what is queued or unsaved, whatever plugins add, and the way
+ * into settings. Rename, delete and the rest live beside the note they act on
+ * — in its header on a desktop, behind its ⋯ on a phone — and the vault's
+ * actions behind the vault's own ⋯.
  *
- * The gear renders at both widths, and is the only thing here that does. It is
- * the way to the account, so it cannot be behind the `!isPhone` gate the rest
- * of these buttons are — and it sits beside the sync light rather than out at
- * the end, so it does not move as the actions beside a note come and go.
+ * The gear sits beside the sync light rather than out at the end, so it does
+ * not move as plugin items come and go.
  */
-export function StatusBar({ livePreview, onToggleLivePreview, onOpenSettings }: Props) {
+export function StatusBar({ onOpenSettings }: Props) {
   const sync = useApp((s) => s.sync)
   const pending = useApp((s) => s.pending)
   const unsaved = useApp((s) => s.unsaved)
-  const currentPath = useApp((s) => s.currentPath)
-  const currentVault = useApp((s) => s.currentVault)
   const isFolder = useApp((s) => s.vaults.some((v) => v.id === s.currentVault && isLocal(v)))
-  const signedIn = useApp((s) => s.signedIn)
   const syncNow = useApp((s) => s.syncNow)
-  const isPhone = useIsPhone()
 
   return (
     <footer className="status">
@@ -52,46 +44,12 @@ export function StatusBar({ livePreview, onToggleLivePreview, onOpenSettings }: 
         {label[sync]}
         {pending > 0 && <span className="pending">{pending} queued</span>}
       </button>
-      {unsaved && <span className="muted">unsaved…</span>}
-      <Slot name="status.items" />
-      <button
-        className="icon-button"
-        onClick={onOpenSettings}
-        aria-label="Settings"
-        title="Settings"
-      >
+      {unsaved && <span className="muted">Unsaved…</span>}
+      <button className="icon-button" onClick={onOpenSettings} aria-label="Settings" title="Settings">
         <Gear />
       </button>
       <span className="spacer" />
-      {!isPhone && (
-        <>
-          {currentPath && (
-            <>
-              <button className="ghost" onClick={onToggleLivePreview} title="Toggle live preview">
-                {livePreview ? 'preview' : 'source'}
-              </button>
-              <button className="ghost" onClick={() => void promptRename(currentPath)}>
-                rename
-              </button>
-              <button className="ghost danger" onClick={() => void promptDelete(currentPath)}>
-                delete
-              </button>
-            </>
-          )}
-          {isFolder && currentVault && (
-            <>
-              {signedIn && (
-                <button className="ghost" onClick={() => void promptPromote(currentVault)}>
-                  sync…
-                </button>
-              )}
-              <button className="ghost" onClick={() => void promptForgetFolder(currentVault)}>
-                forget vault
-              </button>
-            </>
-          )}
-        </>
-      )}
+      <Slot name="status.items" />
     </footer>
   )
 }

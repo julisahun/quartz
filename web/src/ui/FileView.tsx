@@ -1,7 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { humanSize, noteTitle } from '../state/notes'
 import { useApp } from '../state/store'
-import { Download, External } from './icons'
+import { fileActions } from './actions'
+import { openMenu } from './dialogs'
+import { Download, Ellipsis, External } from './icons'
+import { useIsPhone } from './media'
 
 /**
  * The bytes of a vault file, as a URL something can be pointed at.
@@ -55,6 +58,8 @@ export function FileHead({ path, url, icon }: { path: string; url?: string; icon
   const files = useApp((s) => s.files)
   const name = noteTitle(path)
   const size = files.find((f) => f.path === path)?.size
+  // On a phone the screen's own bar already carries this file's ⋯.
+  const isPhone = useIsPhone()
 
   return (
     <header className="fileview-head">
@@ -79,6 +84,16 @@ export function FileHead({ path, url, icon }: { path: string; url?: string; icon
             <Download />
           </a>
         </>
+      )}
+      {!isPhone && (
+        <button
+          className="icon-button"
+          onClick={() => void openMenu(name, fileActions(path))}
+          aria-label="File actions"
+          title="File actions"
+        >
+          <Ellipsis />
+        </button>
       )}
     </header>
   )

@@ -161,7 +161,10 @@ export function Dialogs() {
       if (event.key === 'Escape') {
         event.preventDefault()
         settle(request, dismissValue(request))
+        return
       }
+      // A menu is walked with the arrows, as a menu is everywhere else.
+      if (request.kind === 'menu') moveThroughMenu(event, sheet.current)
     }
     document.addEventListener('keydown', onKey)
     return () => {
@@ -202,6 +205,21 @@ export function Dialogs() {
 }
 
 type Settle = DialogState['settle']
+
+function moveThroughMenu(event: KeyboardEvent, sheet: HTMLElement | null) {
+  const keys = ['ArrowDown', 'ArrowUp', 'Home', 'End']
+  if (!sheet || !keys.includes(event.key)) return
+  const items = [...sheet.querySelectorAll<HTMLElement>('.menu-item')]
+  if (items.length === 0) return
+  event.preventDefault()
+  const at = items.indexOf(document.activeElement as HTMLElement)
+  let next: number
+  if (event.key === 'Home') next = 0
+  else if (event.key === 'End') next = items.length - 1
+  else if (event.key === 'ArrowDown') next = at < 0 ? 0 : (at + 1) % items.length
+  else next = at <= 0 ? items.length - 1 : at - 1
+  items[next].focus()
+}
 
 function TextBody({ request, onSettle }: { request: TextRequest; onSettle: Settle }) {
   const [value, setValue] = useState(request.value)
@@ -259,11 +277,12 @@ function ConfirmBody({ request, onSettle }: { request: ConfirmRequest; onSettle:
 
 function MenuBody({ request, onSettle }: { request: MenuRequest; onSettle: Settle }) {
   return (
-    <div className="sheet-body menu">
+    <div className="sheet-body menu" role="menu">
       {request.items.map((item) => (
         <button
           key={item.label}
           type="button"
+          role="menuitem"
           className={`menu-item ${item.danger ? 'danger' : ''}`}
           onClick={() => {
             onSettle(request, item)

@@ -1,10 +1,11 @@
 import { addCommand } from '../state/commands'
 import { childFolder, folderName, folderNameProblem } from '../state/folders'
-import { folderOf, noteTitle } from '../state/notes'
-import { FolderTakenError, useApp } from '../state/store'
-import { slugForVault } from '../state/vaults'
+import { folderOf, isConflictCopy, isNote, noteTitle } from '../state/notes'
+import { FolderTakenError, useApp, type HeldFile } from '../state/store'
+import { isLocal, slugForVault } from '../state/vaults'
 import { ApiError, OfflineError } from '../api/client'
-import { askConfirm, askPassword, openMenu, askText } from './dialogs'
+import { askConfirm, askPassword, openMenu, askText, type MenuItem } from './dialogs'
+import { shortcut } from './media'
 
 /**
  * The note actions that need to ask something first. One copy, so the phone's
@@ -43,64 +44,323 @@ export async function askWhereVaultLives(
   return answer
 }
 
-export async function promptNewNote(): Promise<string | undefined> {
-  const title = await askText({ title: 'New note', label: 'Title', confirmLabel: 'Create' })
+/**
+ * A new note, in `folder` — by default the folder of the note that is open,
+ * which is where somebody working in a corner of the vault means.
+ */
+export async function promptNewNote(folder?: string): Promise<string | undefined> {
+  const where = folder ?? folderOf(useApp.getState().currentPath ?? '')
+  const title = await askText({
+    title: where ? `New note in ${folderName(where)}` : 'New note',
+    label: 'Title',
+    confirmLabel: 'Create',
+  })
   if (title === null) return undefined
-  return useApp.getState().createNote(title)
+  return useApp.getState().createNote(title, where)
 }
 
-export async function promptRename(path: string): Promise<string | undefined> {
-  const next = await askText({
-    title: 'Rename',
-    label: 'Path in the vault',
-    value: path,
-    confirmLabel: 'Rename',
-  })
-  if (next === null || next === path) return undefined
-
-  // Only worth asking when there is something to decide: a note nothing links
-  // to is renamed without a second sheet.
+/**
+ * Asks whether the links to a note should follow it somewhere else. Only
+ * worth asking when there is something to decide, so a note nothing links to
+ * answers `false` without a sheet. Undefined means the sheet was dismissed,
+ * which is not a quiet yes to either: nothing should move.
+ */
+async function askUpdateLinks(path: string, verb: 'Rename' | 'Move'): Promise<boolean | undefined> {
   const linking = await useApp.getState().linksTo(path)
-  let updateLinks = false
-  if (linking > 0) {
-    let chosen: boolean | undefined
-    const picked = await openMenu(
-      `${linking} ${linking === 1 ? 'note links' : 'notes link'} to ${noteTitle(path)}`,
-      [
-        {
-          label: 'Rename and update them',
-          hint: 'The links follow the new name',
-          run: () => {
-            chosen = true
-          },
+  if (linking === 0) return false
+  let chosen: boolean | undefined
+  const picked = await openMenu(
+    `${linking} ${linking === 1 ? 'note links' : 'notes link'} to ${noteTitle(path)}`,
+    [
+      {
+        label: `${verb} and update them`,
+        hint: 'The links follow the note',
+        run: () => {
+          chosen = true
         },
-        {
-          label: 'Rename only',
-          hint: 'Those links will stop resolving',
-          run: () => {
-            chosen = false
-          },
+      },
+      {
+        label: `${verb} only`,
+        hint: 'Those links may stop resolving',
+        run: () => {
+          chosen = false
         },
-      ],
-    )
-    // Dismissing the sheet is not a quiet yes to either: nothing moves.
-    if (!picked || chosen === undefined) return undefined
-    updateLinks = chosen
-  }
+      },
+    ],
+  )
+  if (!picked) return undefined
+  return chosen
+}
 
-  return useApp.getState().renameNote(path, next, updateLinks)
+/** The extension a renamed file keeps: `.md` for a note, its own for anything else. */
+function extensionOf(path: string): string {
+  const name = path.slice(path.lastIndexOf('/') + 1)
+  const dot = name.lastIndexOf('.')
+  return dot > 0 ? name.slice(dot) : ''
+}
+
+/**
+ * Renaming a note asks for a name, the way renaming a folder does — not for
+ * a path. The folder stays where it is and the extension is kept, so a typo
+ * cannot move the note or turn it into something that is not a note; moving
+ * is "Move to…", which asks with a list of folders instead.
+ */
+export async function promptRename(path: string): Promise<string | undefined> {
+  const ext = extensionOf(path)
+  const current = isNote(path) ? noteTitle(path) : noteTitle(path).slice(0, -ext.length || undefined)
+  let value = current
+  let problem: string | undefined
+
+  for (;;) {
+    const next = await askText({
+      title: `Rename ${noteTitle(path)}`,
+      label: problem ?? 'Name',
+      value,
+      confirmLabel: 'Rename',
+    })
+    if (next === null) return undefined
+    value = next
+    const name = next.trim().replace(new RegExp(`${ext.replace('.', '\\.')}$`, 'i'), '')
+    if (name === current) return undefined
+    problem = nameProblem(name)
+    if (problem) continue
+
+    const folder = folderOf(path)
+    const target = `${folder ? `${folder}/` : ''}${name}${ext}`
+    const updateLinks = await askUpdateLinks(path, 'Rename')
+    if (updateLinks === undefined) return undefined
+    return useApp.getState().renameNote(path, target, updateLinks)
+  }
+}
+
+function nameProblem(name: string): string | undefined {
+  if (name === '') return 'A note needs a name.'
+  if (name.includes('/')) return 'A name cannot contain / — use Move to… to change folders.'
+  return folderNameProblem(name)?.replace('A folder name', 'A name')
+}
+
+/** Every folder in the vault, outermost first. */
+function allFolders(): string[] {
+  const found = new Set<string>()
+  for (const file of useApp.getState().files) {
+    let folder = folderOf(file.path)
+    while (folder) {
+      found.add(folder)
+      folder = folderOf(folder)
+    }
+  }
+  return [...found].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
+}
+
+/** Moves a file into `folder` ('' for the root), asking about links first. */
+export async function moveTo(path: string, folder: string): Promise<string | undefined> {
+  if (folderOf(path) === folder) return undefined
+  const name = path.slice(path.lastIndexOf('/') + 1)
+  const updateLinks = await askUpdateLinks(path, 'Move')
+  if (updateLinks === undefined) return undefined
+  try {
+    const moved = await useApp.getState().renameNote(path, folder ? `${folder}/${name}` : name, updateLinks)
+    useApp.getState().notify('info', `${noteTitle(path)} moved to ${folder ? folderName(folder) : 'the vault root'}`)
+    return moved
+  } catch (err) {
+    useApp.getState().notify('error', message(err, `${noteTitle(path)} was not moved.`))
+    return undefined
+  }
+}
+
+/** "Move to…": the folders as a list to pick from, rather than a path to type. */
+export async function promptMove(path: string): Promise<string | undefined> {
+  const here = folderOf(path)
+  let target: string | undefined
+  const choices: MenuItem[] = [
+    ...(here ? [{ label: 'Vault root', hint: 'Out of every folder', run: () => (target = '') }] : []),
+    ...allFolders()
+      .filter((folder) => folder !== here)
+      .map((folder) => ({
+        label: folderName(folder),
+        hint: folderOf(folder) || undefined,
+        run: () => (target = folder),
+      })),
+  ]
+  if (choices.length === 0) {
+    useApp.getState().notify('info', 'There is no other folder to move it to yet.')
+    return undefined
+  }
+  const picked = await openMenu(`Move ${noteTitle(path)} to…`, choices)
+  if (!picked || target === undefined) return undefined
+  return moveTo(path, target)
+}
+
+/** A notice that can put held files back. */
+function offerUndo(text: string, held: HeldFile[]) {
+  useApp.getState().notify(
+    'info',
+    text,
+    held.length > 0
+      ? { label: 'Undo', run: () => useApp.getState().restoreFiles(held) }
+      : undefined,
+  )
 }
 
 export async function promptDelete(path: string): Promise<boolean> {
   const ok = await askConfirm({
     title: `Delete ${noteTitle(path)}?`,
-    body: "It stays in the vault's git history, so it can be brought back over SSH.",
+    body: 'You can undo this for a few seconds afterwards.',
     confirmLabel: 'Delete',
     danger: true,
   })
   if (!ok) return false
+  const held = await useApp.getState().holdFiles([path])
   await useApp.getState().deleteNote(path)
+  offerUndo(`${noteTitle(path)} deleted`, held)
   return true
+}
+
+const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+// The words are the UI's language, English; only the date takes the device's format.
+const relative = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
+
+/** "3 hours ago", in the coarsest unit that is not zero. */
+export function ago(at: number, now = Date.now()): string {
+  const seconds = Math.round((at - now) / 1000)
+  const units: [Intl.RelativeTimeFormatUnit, number][] = [
+    ['year', 31_536_000],
+    ['month', 2_592_000],
+    ['week', 604_800],
+    ['day', 86_400],
+    ['hour', 3_600],
+    ['minute', 60],
+  ]
+  for (const [unit, size] of units) {
+    if (Math.abs(seconds) >= size) return relative.format(Math.round(seconds / size), unit)
+  }
+  return 'just now'
+}
+
+/**
+ * "History…": the server's saved versions of a note, and putting one back.
+ *
+ * Commits are debounced on the server, so a version is a resting point rather
+ * than every keystroke. Restoring goes through the editor, which makes it an
+ * ordinary edit — ⌘Z takes it back.
+ */
+export async function promptHistory(path: string): Promise<void> {
+  const asking = useApp.getState().history(path)
+  if (!asking) return
+  let entries
+  try {
+    entries = await asking
+  } catch (err) {
+    useApp.getState().notify('error', message(err, 'The history could not be fetched. Is the server reachable?'))
+    return
+  }
+  if (entries.length === 0) {
+    useApp.getState().notify('info', `The server has no saved versions of ${noteTitle(path)} yet.`)
+    return
+  }
+  let rev: string | undefined
+  let at = 0
+  const picked = await openMenu(
+    `Versions of ${noteTitle(path)}`,
+    entries.map((entry, i) => ({
+      label: dateFormat.format(entry.at),
+      hint: i === 0 ? `${ago(entry.at)} · the latest on the server` : ago(entry.at),
+      run: () => {
+        rev = entry.rev
+        at = entry.at
+      },
+    })),
+  )
+  if (!picked || !rev) return
+  const ok = await askConfirm({
+    title: 'Restore this version?',
+    body: `${noteTitle(path)} goes back to how it was on ${dateFormat.format(at)}. The text it has now is replaced${useApp.getState().currentPath === path ? ' — ⌘Z in the editor brings it back' : ''}.`,
+    confirmLabel: 'Restore',
+  })
+  if (!ok) return
+  try {
+    await useApp.getState().restoreRevision(path, rev)
+    useApp.getState().notify('info', `${noteTitle(path)} restored to ${dateFormat.format(at)}`)
+  } catch (err) {
+    useApp.getState().notify('error', message(err, 'That version could not be restored.'))
+  }
+}
+
+function canAskHistory(): boolean {
+  const { currentVault, vaults } = useApp.getState()
+  const vault = vaults.find((v) => v.id === currentVault)
+  return vault !== undefined && !isLocal(vault)
+}
+
+/** The note a conflict copy was split from: `Plan (conflict laptop 2026-…).md` → `Plan.md`. */
+export function originalOf(path: string): string {
+  return path.replace(/ \(conflict [^)]+\)(\.[^.]+)$/, '$1')
+}
+
+/**
+ * A conflict copy is the other side of an edit made in two places. Settling
+ * it means picking a side: this copy's text becomes the note, or the copy
+ * goes. Either way the loser can be brought back with Undo.
+ */
+export async function promptResolveConflict(path: string): Promise<void> {
+  const original = originalOf(path)
+  const hasOriginal = useApp.getState().files.some((f) => f.path === original)
+  let choice: 'mine' | 'theirs' | 'open' | undefined
+  const picked = await openMenu(`Settle ${noteTitle(path)}`, [
+    ...(hasOriginal
+      ? [{ label: `Open ${noteTitle(original)}`, hint: 'To compare the two first', run: () => (choice = 'open') }]
+      : []),
+    {
+      label: 'Keep this copy',
+      hint: hasOriginal ? `Its text replaces ${noteTitle(original)}, and the copy goes` : `It becomes ${noteTitle(original)}`,
+      run: () => (choice = 'mine'),
+    },
+    ...(hasOriginal
+      ? [{ label: 'Keep the original', hint: 'This copy is deleted', danger: true, run: () => (choice = 'theirs') }]
+      : []),
+  ])
+  if (!picked || !choice) return
+  const app = useApp.getState()
+  if (choice === 'open') {
+    await app.open(original)
+    return
+  }
+  const held = await app.holdFiles(choice === 'mine' ? [path, original] : [path])
+  if (choice === 'mine') {
+    const mine = held.find((file) => file.path === path)
+    if (!mine) return
+    await app.restoreFiles([{ path: original, data: mine.data }])
+  }
+  await app.deleteNote(path)
+  await app.open(original)
+  offerUndo(choice === 'mine' ? `${noteTitle(original)} now has the copy’s text` : 'Conflict copy deleted', held)
+}
+
+/**
+ * What can be done to one file: the same list behind a row's context menu,
+ * the note header's ⋯ and the phone's note menu, so all three agree.
+ */
+export function fileActions(path: string, options: { onDeleted?: () => void } = {}): MenuItem[] {
+  return [
+    ...(isConflictCopy(path)
+      ? [{ label: 'Settle conflict…', hint: 'Keep this copy or the original', run: () => void promptResolveConflict(path) }]
+      : []),
+    { label: 'Rename…', run: () => void promptRename(path) },
+    { label: 'Move to…', run: () => void promptMove(path) },
+    ...(isNote(path) && canAskHistory()
+      ? [{ label: 'History…', hint: 'Earlier versions saved on the server', run: () => void promptHistory(path) }]
+      : []),
+    {
+      label: 'Delete',
+      danger: true,
+      run: () => void promptDelete(path).then((done) => done && options.onDeleted?.()),
+    },
+  ]
+}
+
+/** A row's context menu: the file's actions, with opening it first. */
+export function rowMenu(path: string, onOpen: (path: string) => void): Promise<unknown> {
+  return openMenu(noteTitle(path), [{ label: 'Open', run: () => onOpen(path) }, ...fileActions(path)])
 }
 
 /**
@@ -211,15 +471,17 @@ export async function promptDeleteFolder(folder: string): Promise<boolean> {
 
   const ok = await askConfirm({
     title: `Delete ${folderName(folder)}?`,
-    body: `${what} inside will be deleted. They stay in the vault's git history, so they can be brought back over SSH.`,
+    body: `${what} inside will be deleted. You can undo this for a few seconds afterwards.`,
     confirmLabel: 'Delete',
     danger: true,
   })
   if (!ok) return false
 
   try {
-    const gone = await useApp.getState().deleteFolder(folder)
-    useApp.getState().notify('info', `${folderName(folder)} deleted; ${count(gone, 'file')} gone`)
+    const app = useApp.getState()
+    const held = await app.holdFiles(app.files.filter((f) => f.path.startsWith(`${folder}/`)).map((f) => f.path))
+    const gone = await app.deleteFolder(folder)
+    offerUndo(`${folderName(folder)} deleted; ${count(gone, 'file')} gone`, held)
     return true
   } catch (err) {
     useApp.getState().notify('error', message(err, `${folderName(folder)} was not deleted.`))
@@ -230,6 +492,7 @@ export async function promptDeleteFolder(folder: string): Promise<boolean> {
 /** What a folder row's ⋯ offers. */
 export function folderMenu(folder: string): Promise<unknown> {
   return openMenu(folderName(folder), [
+    { label: 'New note here…', run: () => void promptNewNote(folder) },
     { label: 'Rename…', run: () => void promptRenameFolder(folder) },
     { label: 'New folder inside…', run: () => void promptNewFolder(folder) },
     { label: 'Delete', danger: true, run: () => void promptDeleteFolder(folder) },
@@ -256,7 +519,7 @@ export async function promptPromote(id: string): Promise<void> {
   if (!folder) return
 
   const name = await askText({
-    title: 'Sync to the server',
+    title: 'Publish to the server',
     label: 'Name on the server',
     value: folder.name,
     confirmLabel: 'Continue',
@@ -350,7 +613,7 @@ export function registerNoteCommands(): () => void {
   const signedIn = () => useApp.getState().signedIn
 
   const added = [
-    addCommand({ id: 'note.new', title: 'New note…', run: () => void promptNewNote() }),
+    addCommand({ id: 'note.new', title: 'New note…', shortcut: shortcut('N'), run: () => void promptNewNote() }),
     // A folder at the root has no row of its own, and the sidebar's ⋯ is only
     // on a phone — so this is the one way to make one on a desktop.
     addCommand({ id: 'folder.new', title: 'New folder…', run: () => void promptNewFolder() }),
@@ -365,6 +628,18 @@ export function registerNoteCommands(): () => void {
       title: 'Rename this note…',
       when: withNote,
       run: () => void promptRename(useApp.getState().currentPath!),
+    }),
+    addCommand({
+      id: 'note.move',
+      title: 'Move this note to…',
+      when: withNote,
+      run: () => void promptMove(useApp.getState().currentPath!),
+    }),
+    addCommand({
+      id: 'note.history',
+      title: 'Show this note’s history…',
+      when: () => withNote() && isNote(useApp.getState().currentPath!) && canAskHistory(),
+      run: () => void promptHistory(useApp.getState().currentPath!),
     }),
     addCommand({
       id: 'note.delete',

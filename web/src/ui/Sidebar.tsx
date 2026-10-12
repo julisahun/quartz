@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import type { SearchHit } from '../api/client'
 import { folderOf, noteTitle } from '../state/notes'
 import { persisted } from '../state/persist'
@@ -7,13 +7,13 @@ import { tagMatches } from '../state/tags'
 import { buildTree, foldersTo } from '../state/tree'
 import { isLocal, vaultHint } from '../state/vaults'
 import { foldersSupported, isFolderBacked } from '../vault/folders'
-import { promptForgetFolder, promptNewFolder, promptNewNote, promptPromote } from './actions'
+import { moveTo, promptForgetFolder, promptNewFolder, promptNewNote, promptPromote } from './actions'
 import { AppBar } from './AppBar'
 import { openMenu } from './dialogs'
 import { usePullToRefresh } from './gestures'
 import { Ellipsis, Plus, Refresh } from './icons'
-import { useIsPhone } from './media'
-import { NoteRow, NoteTree } from './NoteTree'
+import { shortcut, useIsPhone } from './media'
+import { DRAG_TYPE, NoteRow, NoteTree } from './NoteTree'
 import { SidebarResizer } from './SidebarResizer'
 import { Slot } from './Slot'
 import { VaultSwitcher } from './VaultSwitcher'
@@ -43,6 +43,10 @@ export function Sidebar({ onNavigate, inert }: Props) {
   const isPhone = useIsPhone()
 
   const [hits, setHits] = useState<SearchHit[] | undefined>()
+  // Between a keystroke and the answer: the debounce, then a round trip to a
+  // Pi. Long enough that a list that simply sits there reads as "no change".
+  const [searching, setSearching] = useState(false)
+  const [rootDrop, setRootDrop] = useState(false)
   const [swiped, setSwiped] = useState<string | undefined>()
   const [listFrame, setListFrame] = useState<HTMLDivElement | null>(null)
   const [listScroller, setListScroller] = useState<HTMLDivElement | null>(null)
@@ -55,11 +59,25 @@ export function Sidebar({ onNavigate, inert }: Props) {
     const q = query.trim()
     if (!q || tagFilter !== undefined) {
       setHits(undefined)
+      setSearching(false)
       return
     }
     // Search as you type, but only after a pause: the server is a Pi.
-    const timer = setTimeout(() => void search(q).then(setHits), 180)
-    return () => clearTimeout(timer)
+    let live = true
+    setSearching(true)
+    const timer = setTimeout(
+      () =>
+        void search(q).then((found) => {
+          if (!live) return
+          setHits(found)
+          setSearching(false)
+        }),
+      180,
+    )
+    return () => {
+      live = false
+      clearTimeout(timer)
+    }
   }, [query, search, tagFilter])
 
   const refresh = useCallback(() => syncNow(), [syncNow])
@@ -119,7 +137,7 @@ export function Sidebar({ onNavigate, inert }: Props) {
         ? [
             // Publishing needs an account to publish to.
             ...(signedIn
-              ? [{ label: 'Sync this vault…', hint: 'Copies it to the server', run: () => void promptPromote(open.id) }]
+              ? [{ label: 'Publish to server…', hint: 'So your other devices can open it', run: () => void promptPromote(open.id) }]
               : []),
             { label: 'Forget this vault', hint: 'Leaves the notes on disk', run: () => void promptForgetFolder(open.id) },
           ]
@@ -151,6 +169,8 @@ export function Sidebar({ onNavigate, inert }: Props) {
     swipeable: isPhone,
     onChoose: choose,
   }
+
+  const treeMode = tagFilter === undefined && !hits
 
   let rows
   if (tagFilter !== undefined) {
@@ -236,7 +256,7 @@ export function Sidebar({ onNavigate, inert }: Props) {
           }
         />
       ) : (
-        <VaultSwitcher />
+        <VaultSwitcher onMenu={listMenu} />
       )}
 
       <div className="sidebar-head">
@@ -244,7 +264,16 @@ export function Sidebar({ onNavigate, inert }: Props) {
           className="search"
           value={query}
           placeholder="Search, or #tag"
+          aria-label="Search notes, or #tag"
           onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(event) => {
+            // Down from the field goes into the results, as it would in a list.
+            if (event.key !== 'ArrowDown') return
+            const first = listScroller?.querySelector<HTMLElement>(NAV_SELECTOR)
+            if (!first) return
+            event.preventDefault()
+            first.focus()
+          }}
           type="search"
           enterKeyHint="search"
         />
@@ -261,9 +290,36 @@ export function Sidebar({ onNavigate, inert }: Props) {
         <div className="pull-indicator" aria-hidden="true">
           <Refresh />
         </div>
-        <div className="note-list" ref={setListScroller} onScroll={() => setSwiped(undefined)}>
+        <div
+          className={`note-list ${searching ? 'busy' : ''} ${rootDrop ? 'drop-target' : ''}`}
+          ref={setListScroller}
+          onScroll={() => setSwiped(undefined)}
+          onKeyDown={(event) => walkList(event, toggle, collapsed)}
+          role={treeMode ? 'tree' : undefined}
+          aria-label={treeMode ? 'Notes' : 'Results'}
+          aria-busy={searching}
+          // Dropped anywhere but on a folder, a row goes to the root.
+          onDragOver={(event) => {
+            if (isPhone || !event.dataTransfer.types.includes(DRAG_TYPE)) return
+            event.preventDefault()
+            setRootDrop(true)
+          }}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node)) setRootDrop(false)
+          }}
+          onDrop={(event) => {
+            setRootDrop(false)
+            const path = event.dataTransfer.getData(DRAG_TYPE)
+            if (!path) return
+            event.preventDefault()
+            void moveTo(path, '')
+          }}
+        >
+          {searching && !hits && <p className="empty searching">Searching…</p>}
           {rows}
-          {files.length === 0 && !hits && tagFilter === undefined && <p className="empty">No notes yet.</p>}
+          {files.length === 0 && !hits && tagFilter === undefined && (
+            <p className="empty">No notes yet — {isPhone ? 'tap +' : 'press + or ' + shortcut('N')} to write the first.</p>
+          )}
         </div>
       </div>
 
@@ -323,4 +379,56 @@ function useFolders(vault: string | undefined, currentPath: string | undefined) 
   }, [currentPath, collapsed, apply])
 
   return { collapsed, toggle }
+}
+
+/** Everything in the list the arrow keys stop on. */
+const NAV_SELECTOR = '.folder-row, .note-row, .tag-chip'
+
+/**
+ * The arrow keys in the note list: up and down walk the visible rows, right
+ * opens a closed folder (or steps into an open one), left closes an open
+ * folder or steps out to the folder a row is in. Home and End go to the ends.
+ */
+function walkList(event: KeyboardEvent<HTMLDivElement>, toggle: (path: string) => void, collapsed: Set<string>) {
+  const rows = [...event.currentTarget.querySelectorAll<HTMLElement>(NAV_SELECTOR)]
+  const here = document.activeElement as HTMLElement
+  const at = rows.indexOf(here)
+  if (at < 0) return
+  const folder = here.dataset.folder
+
+  const go = (index: number) => {
+    event.preventDefault()
+    rows[Math.max(0, Math.min(rows.length - 1, index))]?.focus()
+  }
+
+  switch (event.key) {
+    case 'ArrowDown':
+      return go(at + 1)
+    case 'ArrowUp':
+      return go(at - 1)
+    case 'Home':
+      return go(0)
+    case 'End':
+      return go(rows.length - 1)
+    case 'ArrowRight':
+      if (folder === undefined) return
+      event.preventDefault()
+      if (collapsed.has(folder)) toggle(folder)
+      else go(at + 1)
+      return
+    case 'ArrowLeft': {
+      if (folder !== undefined && !collapsed.has(folder)) {
+        event.preventDefault()
+        toggle(folder)
+        return
+      }
+      // Out to the folder this row sits in.
+      const parent = here.closest('[role="group"]')?.parentElement?.querySelector<HTMLElement>('.folder-row')
+      if (parent) {
+        event.preventDefault()
+        parent.focus()
+      }
+      return
+    }
+  }
 }

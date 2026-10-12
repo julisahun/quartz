@@ -55,3 +55,22 @@ export function useKeyboardOpen(): boolean {
 export function usePrefersReducedMotion(): boolean {
   return useMediaQuery('(prefers-reduced-motion: reduce)')
 }
+
+export function isMac(): boolean {
+  return /Mac|iP(hone|od|ad)/.test(navigator.platform || navigator.userAgent)
+}
+
+/** A shortcut as this platform writes it: `⌘N` on a Mac, `Ctrl+N` elsewhere. */
+export function shortcut(key: string): string {
+  return isMac() ? `⌘${key}` : `Ctrl+${key}`
+}
+
+/**
+ * Whether a key event is the platform's own modifier plus `key` and nothing
+ * else. Only that modifier: on a Mac, Ctrl-P and Ctrl-N are the emacs "up" and
+ * "down a line" CodeMirror binds, and they stay with the editor.
+ */
+export function isModKey(event: KeyboardEvent, key: string): boolean {
+  if (event.key.toLowerCase() !== key || event.altKey || event.shiftKey) return false
+  return isMac() ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
+}

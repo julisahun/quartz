@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { addCommand } from '../state/commands'
+import { addHomeSource } from '../state/home'
 import { parseFrontmatter } from '../state/frontmatter'
 import { folderOf, isNote, noteTitle } from '../state/notes'
 import { useApp } from '../state/store'
@@ -90,6 +91,13 @@ function quartzFor(plugin: QuartzPlugin, disposers: Array<() => void>): Quartz {
         useApp.getState().notify(kind, text)
       },
       ask: { text: askText, confirm: askConfirm, menu: openMenu },
+    },
+    home: {
+      provide(home) {
+        disposers.push(
+          addHomeSource({ id: scoped(home.id), label: home.label, by: plugin.name, resolve: home.resolve }),
+        )
+      },
     },
   }
 }

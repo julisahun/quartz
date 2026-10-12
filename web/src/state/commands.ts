@@ -13,6 +13,8 @@ export interface Command {
   /** Stable and unique. Registering an id twice replaces the first. */
   id: string
   title: string
+  /** The keys that run it too, as shown beside it: `⌘N`. */
+  shortcut?: string
   /** Only offered while this says so — "rename" wants a note open. */
   when?: () => boolean
   run(): void | Promise<void>

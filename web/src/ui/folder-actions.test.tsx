@@ -103,6 +103,7 @@ describe('the folder row', () => {
     })
     expect(sheetTitle()).toBe('dnd')
     expect(menuItems()).toEqual([
+      expect.stringContaining('New note here…'),
       expect.stringContaining('Rename…'),
       expect.stringContaining('New folder inside…'),
       expect.stringContaining('Delete'),

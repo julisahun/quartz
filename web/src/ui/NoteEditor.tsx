@@ -2,15 +2,16 @@ import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { useEffect, useRef, useState } from 'react'
 import { editorExtensions } from '../editor/setup'
-import { resolveWikilink, pathForTitle, fileKind, isNote, mimeType, noteTitle } from '../state/notes'
+import { headings } from '../editor/outline'
+import { resolveWikilink, pathForTitle, fileKind, folderOf, isNote, mimeType, noteTitle } from '../state/notes'
 import { useApp } from '../state/store'
-import { promptDelete, promptRename } from './actions'
+import { fileActions, promptNewNote, promptRename } from './actions'
 import { AppBar } from './AppBar'
 import { Backlinks } from './Backlinks'
-import { openMenu } from './dialogs'
+import { openMenu, type MenuItem } from './dialogs'
 import { EditorToolbar } from './EditorToolbar'
 import { ChevronLeft, Ellipsis } from './icons'
-import { useIsPhone } from './media'
+import { shortcut, useIsPhone } from './media'
 import { ImageView } from './ImageView'
 import { PdfView } from './PdfView'
 import { Slot } from './Slot'
@@ -19,9 +20,11 @@ interface Props {
   livePreview: boolean
   onToggleLivePreview: () => void
   onBack: () => void
+  /** Opens ⌘P, for the empty pane's "Find a note". */
+  onQuickOpen: () => void
 }
 
-export function NoteEditor({ livePreview, onToggleLivePreview, onBack }: Props) {
+export function NoteEditor({ livePreview, onToggleLivePreview, onBack, onQuickOpen }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView>(null)
   const [toolbarView, setToolbarView] = useState<EditorView | null>(null)
@@ -109,36 +112,53 @@ export function NoteEditor({ livePreview, onToggleLivePreview, onBack }: Props) 
     })
   }, [content])
 
+  /** The headings as a menu: picking one scrolls the editor to it. */
+  function outline() {
+    const editor = view.current
+    if (!editor || !currentPath) return
+    const found = headings(editor.state.doc.toString())
+    if (found.length === 0) {
+      useApp.getState().notify('info', `${noteTitle(currentPath)} has no headings yet.`)
+      return
+    }
+    const top = Math.min(...found.map((h) => h.level))
+    void openMenu(
+      'Outline',
+      found.map((heading) => ({
+        label: `${'\u2003'.repeat(heading.level - top)}${heading.text}`,
+        run: () => {
+          const line = editor.state.doc.line(heading.line)
+          editor.dispatch({
+            selection: { anchor: line.from },
+            effects: EditorView.scrollIntoView(line.from, { y: 'start', yMargin: 24 }),
+          })
+          // Not on a phone: focus there throws the keyboard over the heading.
+          if (!isPhone) editor.focus()
+        },
+      })),
+    )
+  }
+
   function noteMenu() {
     if (!currentPath) return
-    void openMenu(noteTitle(currentPath), [
-      // Nothing to preview in a PDF or an image, and nothing to write in one either.
-      ...(isNote(currentPath)
-        ? [
-            {
-              label: livePreview ? 'Source view' : 'Live preview',
-              hint: livePreview ? 'Show the markdown as written' : 'Hide the markup while writing',
-              run: onToggleLivePreview,
-            },
-          ]
-        : []),
-      { label: 'Rename…', run: () => void promptRename(currentPath) },
-      {
-        label: 'Delete',
-        danger: true,
-        run: () => void promptDelete(currentPath).then((done) => done && onBack()),
-      },
-    ])
+    const writing: MenuItem[] = isNote(currentPath)
+      ? [
+          {
+            label: livePreview ? 'Source view' : 'Live preview',
+            hint: livePreview ? 'Show the markdown as written' : 'Hide the markup while writing',
+            run: onToggleLivePreview,
+          },
+          { label: 'Outline…', hint: 'Jump to a heading', run: outline },
+        ]
+      : // Nothing to preview in a PDF or an image, and nothing to write in one either.
+        []
+    void openMenu(noteTitle(currentPath), [...writing, ...fileActions(currentPath, { onDeleted: onBack })])
   }
 
   let body
   const kind = currentPath ? fileKind(currentPath) : undefined
   if (!currentPath) {
-    body = (
-      <div className="editor-empty">
-        <p>Pick a note, or make one.</p>
-      </div>
-    )
+    body = <EmptyPane onQuickOpen={onQuickOpen} />
   } else if (kind === 'pdf') {
     body = <PdfView path={currentPath} />
   } else if (kind === 'image') {
@@ -156,6 +176,14 @@ export function NoteEditor({ livePreview, onToggleLivePreview, onBack }: Props) 
   if (!isPhone) {
     return (
       <>
+        {currentPath && kind === 'note' && (
+          <NoteHeader
+            path={currentPath}
+            livePreview={livePreview}
+            onToggleLivePreview={onToggleLivePreview}
+            onMenu={noteMenu}
+          />
+        )}
         {body}
         <Slot name="note.panels" />
         <Backlinks />
@@ -186,5 +214,102 @@ export function NoteEditor({ livePreview, onToggleLivePreview, onBack }: Props) 
       <Backlinks />
       <EditorToolbar view={toolbarView} />
     </>
+  )
+}
+
+/**
+ * The note's own bar on a desktop: where it is, what it is called, how it is
+ * being shown, and what can be done to it — the same ⋯ the phone has. The
+ * title is the rename: it is where anyone would click to change it.
+ */
+function NoteHeader({
+  path,
+  livePreview,
+  onToggleLivePreview,
+  onMenu,
+}: {
+  path: string
+  livePreview: boolean
+  onToggleLivePreview: () => void
+  onMenu: () => void
+}) {
+  const folder = folderOf(path)
+  return (
+    <header className="note-head">
+      <div className="note-head-text">
+        {folder && (
+          <span className="note-head-folder" title={folder}>
+            {folder.split('/').join(' / ')} /
+          </span>
+        )}
+        <button className="note-head-title" onClick={() => void promptRename(path)} title="Rename">
+          {noteTitle(path)}
+        </button>
+      </div>
+      <button
+        className="mode-toggle"
+        role="switch"
+        aria-checked={livePreview}
+        onClick={onToggleLivePreview}
+        title={livePreview ? 'Showing the note formatted. Switch off to see the markdown as written.' : 'Showing the markdown as written.'}
+      >
+        <span className="switch" aria-hidden="true" />
+        Live preview
+      </button>
+      <button className="icon-button" onClick={onMenu} aria-label="Note actions" title="Note actions">
+        <Ellipsis />
+      </button>
+    </header>
+  )
+}
+
+/** How many recently edited notes the empty pane offers. */
+const RECENT = 6
+
+/**
+ * Nothing open. Rather than only saying so, it offers the ways forward: a
+ * new note, the switcher, and the notes touched last — with the shortcuts
+ * shown, since nothing else on screen mentions them.
+ */
+function EmptyPane({ onQuickOpen }: { onQuickOpen: () => void }) {
+  const files = useApp((s) => s.files)
+  const open = useApp((s) => s.open)
+  const recent = [...files]
+    .filter((file) => isNote(file.path))
+    .sort((a, b) => b.mtime - a.mtime)
+    .slice(0, RECENT)
+
+  return (
+    <div className="editor-empty">
+      <div className="welcome">
+        <p className="welcome-lede">Pick a note, or make one.</p>
+        <div className="welcome-actions">
+          <button className="button primary" onClick={() => void promptNewNote()}>
+            New note <kbd>{shortcut('N')}</kbd>
+          </button>
+          <button className="button" onClick={onQuickOpen}>
+            Find a note <kbd>{shortcut('P')}</kbd>
+          </button>
+        </div>
+        {recent.length > 0 && (
+          <section className="welcome-recent">
+            <h2>Recently edited</h2>
+            <ul>
+              {recent.map((file) => (
+                <li key={file.path}>
+                  <button onClick={() => void open(file.path)}>
+                    <span className="welcome-recent-title">{noteTitle(file.path)}</span>
+                    {folderOf(file.path) && <span className="welcome-recent-folder">{folderOf(file.path)}</span>}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        <p className="welcome-hint">
+          Type <kbd>&gt;</kbd> in {shortcut('P')} for every command.
+        </p>
+      </div>
+    </div>
   )
 }

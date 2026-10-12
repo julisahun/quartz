@@ -103,11 +103,16 @@ export function QuickOpen({ open, onClose, onOpened }: Props) {
         runnable.map((command, i) => (
           <button
             key={command.id}
+            id={optionId(i)}
+            role="option"
+            aria-selected={i === active}
+            tabIndex={-1}
             className={`quick-hit ${i === active ? 'active' : ''}`}
             onMouseEnter={() => setActive(i)}
             onClick={() => runCommand(command)}
           >
             <span className="quick-title">{command.title}</span>
+            {command.shortcut && <kbd className="quick-shortcut">{command.shortcut}</kbd>}
           </button>
         ))
       )
@@ -119,6 +124,10 @@ export function QuickOpen({ open, onClose, onOpened }: Props) {
         hits.map((hit, i) => (
           <button
             key={hit.path}
+            id={optionId(i)}
+            role="option"
+            aria-selected={i === active}
+            tabIndex={-1}
             className={`quick-hit ${i === active ? 'active' : ''}`}
             onMouseEnter={() => setActive(i)}
             onClick={() => choose(hit)}
@@ -137,6 +146,12 @@ export function QuickOpen({ open, onClose, onOpened }: Props) {
         <input
           ref={field}
           className="quick-field"
+          role="combobox"
+          aria-expanded="true"
+          aria-controls="quick-list"
+          aria-autocomplete="list"
+          aria-activedescendant={count > 0 ? optionId(active) : undefined}
+          aria-label={asCommand ? 'Run a command' : 'Go to a note'}
           value={query}
           placeholder="Go to note, or > for commands…"
           onChange={(e) => setQuery(e.target.value)}
@@ -144,12 +159,31 @@ export function QuickOpen({ open, onClose, onOpened }: Props) {
           autoComplete="off"
           spellCheck={false}
         />
-        <div className="quick-list" ref={list}>
+        <div className="quick-list" id="quick-list" role="listbox" ref={list}>
           {rows}
+        </div>
+        <div className="quick-foot" aria-hidden="true">
+          <span>
+            <kbd>↑</kbd>
+            <kbd>↓</kbd> to move
+          </span>
+          <span>
+            <kbd>↵</kbd> to open
+          </span>
+          <span>
+            <kbd>&gt;</kbd> for commands
+          </span>
+          <span>
+            <kbd>esc</kbd> to close
+          </span>
         </div>
       </div>
     </div>
   )
+}
+
+function optionId(index: number): string {
+  return `quick-option-${index}`
 }
 
 /**

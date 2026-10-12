@@ -666,3 +666,25 @@ for that was that a pasted screenshot belongs to the note that embeds it.
 so this was one function, a viewer, and an icon. What is left over (an Obsidian
 settings file, a `.zip`) is still an attachment and still belongs to the note
 that references it.
+
+## A home note, and a calendar that offers one (2026-10-12)
+
+Opening a vault used to land on its first note in tree order, which is an
+accident of naming rather than a choice. The want was a calendar with today's
+note as the start screen; the decision was to keep those apart. The home is
+the app's — a note per vault the app opens on — and the calendar is one thing
+that can set it.
+
+| Question | Decision | Notes |
+|---|---|---|
+| A path, or something that works the path out? | **Both: a path, or a source** | Today's note is a different file every day, so a stored path is wrong by morning. A source is a `resolve()` asked at launch; a person's own pick is still a plain path. `state/home.ts` holds the registry and knows nothing of plugins — the API reaches it through `q.home.provide`, like commands through `addCommand`. |
+| Who wins when a person and a plugin both set it? | **Whoever set it last** | A source takes over the first time a vault meets it — turning it on is asking for it — and never again after that, so picking a note in Settings sticks across launches. Each vault records the sources it has met to tell the two apart. Turning the plugin off withdraws its home everywhere; turning it back on is asking again. |
+| Where is it kept? | **Per vault, per device, in `localStorage`** | Per vault because a path means nothing outside its vault; per device for the reason the plugin list is: where my phone opens is not another member's call. |
+| When does it show? | **When the app opens, and on switching vault** | Where the first note used to open. On a phone the first landing goes straight to the note rather than leaving it behind the list. Phone widgets were raised and left out: an iOS PWA cannot have them at all. |
+| A source that creates its note — when? | **After the launch's first sync** | Creating today's note on two devices before either has synced is a conflict copy of an empty template. A typed path opens at once; a source waits for the sync, or for it to fail. |
+| A home that is not there? | **Said, not created** | A notice and an empty editor. A deleted `index.md` should not come back as a blank note nobody asked for. |
+
+The calendar itself lives in the daily-note plugin: a sidebar section with a
+month grid (a dot per day that has a note, from paths alone) and a week list
+(two lines of each day's note). It counts daily notes only, `journal/YYYY-MM-DD.md`;
+hours, and a full-page view, are for later.

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { homeOf, setHome, useHomeSources, type HomeChoice } from '../state/home'
 import { persisted } from '../state/persist'
 import { humanSize } from '../state/notes'
 import { storageEstimate } from '../state/storage'
@@ -6,7 +7,7 @@ import { useApp } from '../state/store'
 import { isDesktop } from '../vault/tauri-bridge'
 import { promptChangePassword, promptSignOut } from './actions'
 import { AppBar } from './AppBar'
-import { askText } from './dialogs'
+import { askText, openMenu } from './dialogs'
 import { useSwipeBack } from './gestures'
 import { ChevronLeft } from './icons'
 import { useIsPhone } from './media'
@@ -49,6 +50,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
         </p>
         <Account />
         <Device />
+        <Home />
         <Slot name="settings.sections" />
       </div>
     </div>
@@ -162,6 +164,82 @@ function Device() {
       />
     </section>
   )
+}
+
+/**
+ * The note the open vault starts on, here.
+ *
+ * Per vault, since a path means nothing outside its own, and per device like
+ * everything else on this screen. What can be picked is a note, nothing — the
+ * first note, as before there were homes — or whatever is on offer as a home
+ * that works itself out, such as today's note.
+ */
+function Home() {
+  const vault = useApp((s) => s.currentVault)
+  const vaultName = useApp((s) => s.vaults.find((v) => v.id === s.currentVault)?.name)
+  const files = useApp((s) => s.files)
+  const notify = useApp((s) => s.notify)
+  const { sources, version } = useHomeSources()
+  // Re-read whenever a choice is written, here or by a source arriving.
+  const [choice, setChoice] = useState<HomeChoice | undefined>()
+  useEffect(() => setChoice(vault ? homeOf(vault) : undefined), [vault, version, sources])
+
+  const change = useCallback(async () => {
+    if (!vault) return
+    // The menu runs what is picked; nothing to do with its answer.
+    await openMenu('Open this vault on', [
+      ...sources.map((source) => ({
+        label: source.label,
+        hint: source.by,
+        run: () => setHome(vault, { kind: 'source', id: source.id, label: source.label }),
+      })),
+      {
+        label: 'A note…',
+        run: () => {
+          void (async () => {
+            const path = await askText({
+              title: 'Home note',
+              label: 'Path in the vault',
+              value: choice?.kind === 'note' ? choice.path : '',
+              confirmLabel: 'Save',
+            })
+            if (!path) return
+            const clean = path.trim().replace(/^\/+/, '')
+            if (!files.some((f) => f.path === clean)) {
+              notify('error', `${clean} is not in this vault`)
+              return
+            }
+            setHome(vault, { kind: 'note', path: clean })
+          })()
+        },
+      },
+      { label: 'The first note', hint: 'As before there was a home', run: () => setHome(vault, undefined) },
+    ])
+  }, [vault, sources, files, choice, notify])
+
+  if (!vault) return null
+
+  return (
+    <section className="settings-section">
+      <div className="settings-section-head">
+        <h2>Home</h2>
+      </div>
+      <Row
+        label={vaultName ? `${vaultName} opens on` : 'Opens on'}
+        value={describe(choice, sources)}
+        hint="Where this vault starts when the app opens. Per vault, on this device."
+        action={{ label: 'Change…', run: () => void change() }}
+      />
+    </section>
+  )
+}
+
+function describe(choice: HomeChoice | undefined, sources: Array<{ id: string; by?: string }>): string {
+  if (!choice) return 'The first note'
+  if (choice.kind === 'note') return choice.path
+  const source = sources.find((s) => s.id === choice.id)
+  if (!source) return `${choice.label} (not available)`
+  return source.by ? `${choice.label} — ${source.by}` : choice.label
 }
 
 function Row({

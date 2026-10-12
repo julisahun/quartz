@@ -33,7 +33,7 @@ function render(state: Partial<ReturnType<typeof useApp.getState>>) {
   root = createRoot(host)
   act(() =>
     root!.render(
-      <StatusBar livePreview onToggleLivePreview={() => {}} onOpenSettings={onOpenSettings} />,
+      <StatusBar onOpenSettings={onOpenSettings} />,
     ),
   )
   return host
@@ -71,27 +71,19 @@ describe('StatusBar, sitting in a folder opened from disk', () => {
     expect(buttons()).not.toContain('sign out')
   })
 
-  it('offers to publish the folder once there is a session', () => {
-    render({ signedIn: true, user: 'juli' })
-    expect(buttons()).toContain('sync…')
+  /**
+   * The note's and the vault's actions moved next to what they act on — the
+   * note header and the vault's ⋯ — so this strip only says how things are.
+   */
+  it('acts on neither the note nor the vault', () => {
+    render({ signedIn: true, user: 'juli', currentPath: 'Inbox.md' })
+    for (const gone of ['rename', 'delete', 'sync…', 'forget vault', 'preview', 'source']) {
+      expect(buttons()).not.toContain(gone)
+    }
   })
 
-  it('does not offer to publish a folder with no account to publish it to', () => {
+  it('says what state the folder is in', () => {
     render({})
-    expect(buttons()).not.toContain('sync…')
-  })
-
-  it('does not read a vault list as a session', () => {
-    // The old test for "signed in" was "some vault came from the server", so a
-    // cached list outlived the session it was fetched with — and a device with
-    // only folders could never have one at all.
-    render({
-      signedIn: false,
-      vaults: [
-        { id: 'local-abc', name: 'talasia', kind: 'local' },
-        { id: 'juli', name: 'juli', owner: 'juli', role: 'owner' },
-      ],
-    })
-    expect(buttons()).not.toContain('sync…')
+    expect(host!.textContent).toContain('Local folder')
   })
 })

@@ -18,6 +18,8 @@ export interface FakeQuartz extends Quartz {
   statusItems: string[]
   panels: string[]
   notices: Array<{ kind: string; text: string }>
+  /** Homes offered, in order. Call `resolve` to see where one would land. */
+  homes: Array<{ id: string; label: string; resolve: () => Promise<string | undefined> }>
   /** Notes opened, oldest first. The last one is what is on screen. */
   opened: string[]
   current: string | undefined
@@ -48,6 +50,7 @@ export function fakeQuartz(files: Record<string, string> = {}, options: FakeOpti
     statusItems: [],
     panels: [],
     notices: [],
+    homes: [],
     opened: [],
     current: undefined,
 
@@ -107,6 +110,12 @@ export function fakeQuartz(files: Record<string, string> = {}, options: FakeOpti
     commands: {
       add(command) {
         q.commands_.push(command)
+      },
+    },
+
+    home: {
+      provide(home) {
+        q.homes.push(home)
       },
     },
 
