@@ -199,7 +199,7 @@ export function NoteRow({
   const inTree = level !== undefined
 
   return (
-    <div className={`row-wrap ${open ? 'revealed' : ''}`} ref={setZone} role="none">
+    <div className={`row-wrap ${open ? 'revealed' : ''} ${active ? 'current' : ''}`} ref={setZone} role="none">
       <button
         ref={setAction}
         className="row-action"
@@ -249,10 +249,17 @@ export function NoteRow({
             />
           )}
         </span>
-        {/* On a phone the row opens a screen, and the chevron says so. */}
-        <span className="note-chevron" aria-hidden="true">
-          <ChevronRight />
-        </span>
+      </button>
+      <button
+        className="icon-button note-actions"
+        // Out of the arrow-key walk, as a folder's is: the menu is also on the
+        // context-menu key, and a tab stop per row would make the tree a slog.
+        tabIndex={-1}
+        onClick={showMenu}
+        aria-label={`Actions for ${title}`}
+        title={`Actions for ${title}`}
+      >
+        <Ellipsis />
       </button>
     </div>
   )

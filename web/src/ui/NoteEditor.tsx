@@ -86,9 +86,15 @@ export function NoteEditor({ livePreview, onToggleLivePreview, onBack, onQuickOp
     const editor = new EditorView({ state, parent: host.current })
     view.current = editor
     setToolbarView(editor)
-    // Opening a note on a phone is usually reading, not writing: taking focus
-    // here would throw the keyboard over half of what was just opened.
-    if (!isPhone) editor.focus()
+    // Opening a note is usually reading it, so it opens rendered: focus would
+    // put the cursor on line 1, where live preview shows the raw markdown, and
+    // on a phone throw the keyboard over half the note. A note with nothing
+    // written yet is the exception — a new one, or a fresh daily note — and
+    // gets the cursor at its end, ready to type. Not on a phone even then.
+    if (!isPhone && nothingWritten(app.content)) {
+      editor.dispatch({ selection: { anchor: editor.state.doc.length } })
+      editor.focus()
+    }
 
     return () => {
       for (const url of assetUrls.values()) URL.revokeObjectURL(url)
@@ -312,4 +318,13 @@ function EmptyPane({ onQuickOpen }: { onQuickOpen: () => void }) {
       </div>
     </div>
   )
+}
+
+/**
+ * Whether a note is still only its scaffolding: frontmatter and a first
+ * heading at most, which is all a new note or a fresh daily note holds.
+ */
+export function nothingWritten(text: string): boolean {
+  const body = text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').replace(/^\s*#\s[^\n]*\n?/, '')
+  return body.trim() === ''
 }

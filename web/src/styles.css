@@ -694,6 +694,8 @@ html.resizing * {
 
 .row-wrap {
   position: relative;
+  display: flex;
+  align-items: stretch;
   overflow: hidden;
   border-radius: 8px;
 }
@@ -723,7 +725,8 @@ html.resizing * {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   min-height: 40px;
   text-align: left;
   background: var(--sidebar-bg);
@@ -743,7 +746,31 @@ html.resizing * {
   gap: 0.15rem;
 }
 
-.note-row:hover {
+/* The row's ⋯: shown on hover, always where there is no hover. It carries the
+   row's own background, so the two read as one surface. */
+.note-actions {
+  flex: none;
+  min-width: 2rem;
+  min-height: 0;
+  border-radius: 0;
+  background: var(--sidebar-bg);
+  opacity: 0;
+}
+
+.row-wrap:hover .note-actions,
+.note-actions:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .note-actions {
+    opacity: 1;
+  }
+}
+
+.row-wrap:hover .note-row,
+.row-wrap:hover .note-actions,
+.row-wrap.current .note-actions {
   background: var(--bg-raised);
 }
 
@@ -785,11 +812,6 @@ html.resizing * {
   background: transparent;
   color: var(--accent);
   font-weight: 600;
-}
-
-.note-chevron {
-  display: none;
-  color: var(--faint);
 }
 
 .tag {
@@ -1879,8 +1901,8 @@ html.resizing * {
   transform: translateX(-18%);
 }
 
-.app.phone .note-chevron {
-  display: inline-flex;
+.app.phone .note-actions {
+  min-width: var(--tap);
 }
 
 /* Room under the last row for the + that floats over the list. */
