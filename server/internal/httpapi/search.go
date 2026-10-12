@@ -1,8 +1,12 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
+
+	"quartz/internal/gitstore"
+	"quartz/internal/vault"
 )
 
 func (a *API) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -32,4 +36,30 @@ func (a *API) handleHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
+}
+
+// handleHistoryFile answers a path as it was at one of the commits
+// handleHistory lists, so an older version of a note can be put back from the
+// app rather than over SSH.
+func (a *API) handleHistoryFile(w http.ResponseWriter, r *http.Request) {
+	p, err := vault.CleanPath(r.URL.Query().Get("path"))
+	if err != nil {
+		writeVaultError(w, err)
+		return
+	}
+	data, err := serviceFrom(r).Git.Show(r.URL.Query().Get("rev"), p)
+	if errors.Is(err, gitstore.ErrNoRevision) {
+		writeError(w, http.StatusNotFound, "not_found", "no such version")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "server_error", "could not read history")
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", contentType(p))
+	h.Set("Content-Length", strconv.Itoa(len(data)))
+	h.Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
 }

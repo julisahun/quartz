@@ -95,6 +95,7 @@ func (a *API) Router() http.Handler {
 			r.Get("/changes", a.handleChanges)
 			r.Get("/search", a.handleSearch)
 			r.Get("/history", a.handleHistory)
+			r.Get("/history/file", a.handleHistoryFile)
 			r.Get("/members", a.handleMembers)
 			r.Get("/file", a.handleGetFile)
 			r.Put("/file", a.handlePutFile)

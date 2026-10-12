@@ -321,6 +321,7 @@ func TestAnotherUsersVaultIsUnreachable(t *testing.T) {
 		{http.MethodGet, vaultPath("juli", "/changes?since=0"), nil},
 		{http.MethodGet, vaultPath("juli", "/search?q=private"), nil},
 		{http.MethodGet, vaultPath("juli", "/history"), nil},
+		{http.MethodGet, vaultPath("juli", "/history/file?path=secret.md&rev=abcd"), nil},
 		{http.MethodGet, vaultPath("juli", "/members"), nil},
 		{http.MethodGet, vaultPath("juli", "/file?path=secret.md"), nil},
 		{http.MethodPut, vaultPath("juli", "/file?path=secret.md"), map[string]string{"If-Match": `"` + note.Hash + `"`}},

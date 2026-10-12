@@ -7,11 +7,13 @@ package gitstore
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -143,6 +145,25 @@ func (s *Store) Log(path string, limit int) ([]string, error) {
 		return []string{}, nil
 	}
 	return strings.Split(strings.TrimSpace(out), "\n"), nil
+}
+
+// ErrNoRevision is a revision, or a path at a revision, that git does not have.
+var ErrNoRevision = errors.New("no such revision")
+
+var revPattern = regexp.MustCompile(`^[0-9a-f]{4,40}$`)
+
+// Show returns a path's contents as of a commit, for restoring an older
+// version of a note. The revision has to be an abbreviated or full hash — the
+// shape Log hands out — so nothing that reads as an option reaches git.
+func (s *Store) Show(rev, path string) ([]byte, error) {
+	if s.disabled || !revPattern.MatchString(rev) {
+		return nil, ErrNoRevision
+	}
+	out, err := s.run("show", rev+":"+path)
+	if err != nil {
+		return nil, ErrNoRevision
+	}
+	return []byte(out), nil
 }
 
 func (s *Store) run(args ...string) (string, error) {

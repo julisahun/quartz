@@ -70,6 +70,7 @@ deploy/           systemd unit, cloudflared snippet, Pi checklist
 | `DELETE /api/v/{vault}/file?path=<p>` | needs `If-Match: "<hash>"` → 204 / 412 |
 | `GET /api/v/{vault}/search?q=<q>` | FTS5 hits with snippets |
 | `GET /api/v/{vault}/history?path=<p>` | recent commits touching a path |
+| `GET /api/v/{vault}/history/file?path=<p>&rev=<hash>` | a path's contents at one of those commits |
 | `GET /api/v/{vault}/members` | who else can open this vault |
 
 Every content route is under a vault, and a vault you are not a member of
